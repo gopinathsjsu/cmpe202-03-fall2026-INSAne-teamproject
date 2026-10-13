@@ -27,7 +27,7 @@ An end-to-end vacation rental booking and management platform (similar to Airbnb
 |------|--------|-----------------|----------------------|
 | Alice Dao | [@alicemdao](https://github.com/alicemdao) | | |
 | Suhail Tailor | [@stailor-creator](https://github.com/stailor-creator) | | |
-| Ishita Prakash | | | |
+| Ishita Prakash | | | working on the frontend |
 | Navaneeth Puklath | [@NavaneethNairP](https://github.com/NavaneethNairP) | | |
 
 > Each member owns at least one software component. Contribution summaries are updated at the end of each sprint.
