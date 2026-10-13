@@ -72,29 +72,29 @@ All APIs accept and return **JSON**, with input validation and error handling. A
 
 ### 👤 Customer
 
-- [ ] Register / Login as Customer
-- [ ] Search rentals by date, time, # guests, duration, availability
+- [o] Register / Login as Customer
+- [0 ] Search rentals by date, time, # guests, duration, availability
 - [ ] Optional search filters: city / state / zip code
 - [ ] Address search via Google Maps integration
 - [ ] Browse results with photos/videos, amenities, cost rating, reviews & ratings, and # of times booked today
 - [ ] View listing locations on Google Maps
-- [ ] Book a stay (max. 14 days)
-- [ ] Cancel a booking
+- [0 ] Book a stay (max. 14 days)
+- [0] Cancel a booking
 - [ ] Submit reviews and ratings on past bookings
 
 ### 🏠 Host
 
-- [ ] Register / Login as Host
-- [ ] Add a new listing
-- [ ] Remove a listing
-- [ ] View my listings
-- [ ] Add / update name, address, contact info, hours, available booking times, max # guests
-- [ ] Add / update descriptions, photos
-- [ ] Analytics dashboard — rentals and bookings by zip code over 30 / 60 / 90 day periods, scoped to my listings
+- [ 0] Register / Login as Host
+- [ 0] Add a new listing
+- [0 ] Remove a listing
+- [ 0] View my listings
+- [0 ] Add / update name, address, contact info, hours, available booking times, max # guests
+- [0 ] Add / update descriptions, photos
+- [0 ] Analytics dashboard — rentals and bookings by zip code over 30 / 60 / 90 day periods, scoped to my listings
 
 ### 🛡️ Admin
 
-- [ ] Login as Admin
+- [ 0] Login as Admin
 - [ ] Remove incomplete or inaccurate listings
 - [ ] Approve new rentals for inclusion on the app
 - [ ] Analytics dashboard — rentals and bookings by zip code over 30 / 60 / 90 day periods, across all listings
