@@ -1,91 +1,78 @@
 
 import { Link, useNavigate } from "react-router-dom";
-import { logoutUser } from "../services/auth.js";
+import { logoutUser } from "../services/auth";
 
 export default function Navbar({ user, onLogout }) {
   const navigate = useNavigate();
 
-  // Log out and return to the homepage
-  function handleLogout() {
+  const handleLogout = () => {
     logoutUser();
     onLogout();
     navigate("/");
-  }
+  };
 
-  // Determine the dashboard based on the user's role
-  function getDashboardPath() {
-    if (user?.role === "host") {
-      return "/host";
-    }
-
-    return "/dashboard";
-  }
+  const dashboardPath =
+    user?.role === "host"
+      ? "/host"
+      : user?.role === "admin"
+      ? "/admin"
+      : "/dashboard";
 
   return (
-    <header className="navbar">
-      {/* Website Logo */}
+    <nav className="navbar">
       <Link to="/" className="logo">
         <span className="logo-icon">⌂</span>
         Insane Stays
       </Link>
 
-      {/* Navigation Links */}
-      <nav className="nav-links" aria-label="Main navigation">
+      <div className="nav-links">
+        <Link to="/">Home</Link>
+
         {user ? (
           <>
-            {/* Dashboard */}
-            <Link to={getDashboardPath()}>
-              Dashboard
-            </Link>
+            <Link to={dashboardPath}>Dashboard</Link>
 
-            {/* Customer Navigation */}
             {user.role === "customer" && (
-              <Link to="/my-bookings">
-                My Bookings
-              </Link>
+              <Link to="/my-bookings">My Bookings</Link>
             )}
 
-            {/* Host Navigation */}
             {user.role === "host" && (
               <>
-                <Link to="/host">
-                  My Listings
-                </Link>
-
+                <Link to="/host">My Listings</Link>
                 <Link to="/host/add-listing">
                   Add Listing
+                </Link>
+                <Link to="/host/bookings">
+                  My Reservations
                 </Link>
               </>
             )}
 
-            {/* User Greeting */}
-            <span className="user-greeting">
-              Hi, {user?.name?.split(" ")[0] || "Guest"}
+            {user.role === "admin" && (
+              <Link to="/admin">Admin Dashboard</Link>
+            )}
+
+            <span className="navbar-user">
+              Hi, {user.name?.split(" ")[0] || "Guest"}
             </span>
 
-            {/* Logout */}
             <button
               type="button"
               className="outline-btn"
               onClick={handleLogout}
             >
-              Log out
+              Logout
             </button>
           </>
         ) : (
           <>
-            {/* Login */}
-            <Link to="/login">
-              Log in
-            </Link>
-
-            {/* Registration */}
+            <Link to="/login">Login</Link>
             <Link to="/register" className="nav-signup">
-              Sign up
+              Register
             </Link>
           </>
         )}
-      </nav>
-    </header>
+      </div>
+    </nav>
   );
 }

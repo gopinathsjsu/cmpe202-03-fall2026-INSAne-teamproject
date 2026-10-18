@@ -7,108 +7,99 @@ import {
   Navigate,
 } from "react-router-dom";
 
-// Shared Components
-import Navbar from "./components/Navbar.jsx";
+import Navbar from "./components/Navbar";
 
-// Customer Pages
-import Home from "./pages/Home.jsx";
-import PropertyDetails from "./pages/PropertyDetails.jsx";
-import MyBookings from "./pages/MyBookings.jsx";
+import Home from "./pages/Home";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
+import Dashboard from "./pages/Dashboard";
+import PropertyDetails from "./pages/PropertyDetails";
+import MyBookings from "./pages/MyBookings";
 
-// Authentication Pages
-import Login from "./pages/Login.jsx";
-import Register from "./pages/Register.jsx";
+import HostDashboard from "./pages/HostDashboard";
+import AddListing from "./pages/AddListing";
+import EditListing from "./pages/EditListing";
+import HostBookings from "./pages/HostBookings";
 
-// Dashboard Pages
-import Dashboard from "./pages/Dashboard.jsx";
-import HostDashboard from "./pages/HostDashboard.jsx";
+import AdminDashboard from "./pages/AdminDashboard";
 
-// Host Management Pages
-import AddListing from "./pages/AddListing.jsx";
-import EditListing from "./pages/EditListing.jsx";
+import { getCurrentUser } from "./services/auth";
 
-// Authentication Service
-import { getCurrentUser } from "./services/auth.js";
+function getDashboardPath(user) {
+  if (user?.role === "host") return "/host";
+  if (user?.role === "admin") return "/admin";
+  return "/dashboard";
+}
 
 export default function App() {
   const [user, setUser] = useState(getCurrentUser);
 
-  // Redirect users to their appropriate dashboard
-  function getDashboardPath(role) {
-    if (role === "host") return "/host";
-    return "/dashboard";
-  }
+  const handleLogin = (loggedInUser) => {
+    setUser(loggedInUser);
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+  };
 
   return (
     <BrowserRouter>
-      {/* Navigation Bar */}
-      <Navbar
-        user={user}
-        onLogout={() => setUser(null)}
-      />
+      <Navbar user={user} onLogout={handleLogout} />
 
       <Routes>
-        {/* Customer Homepage */}
-        <Route
-          path="/"
-          element={<Home />}
-        />
+        {/* Public routes */}
+        <Route path="/" element={<Home />} />
 
-        {/* Login */}
         <Route
           path="/login"
           element={
             user ? (
               <Navigate
-                to={getDashboardPath(user.role)}
+                to={getDashboardPath(user)}
                 replace
               />
             ) : (
-              <Login onLogin={setUser} />
+              <Login onLogin={handleLogin} />
             )
           }
         />
 
-        {/* Registration */}
         <Route
           path="/register"
           element={
             user ? (
               <Navigate
-                to={getDashboardPath(user.role)}
+                to={getDashboardPath(user)}
                 replace
               />
             ) : (
-              <Register onLogin={setUser} />
+              <Register onLogin={handleLogin} />
             )
           }
         />
 
-        {/* General Dashboard */}
+        <Route
+          path="/properties/:id"
+          element={<PropertyDetails />}
+        />
+
+        {/* Customer routes */}
         <Route
           path="/dashboard"
           element={
-            user ? (
-              user.role === "host" ? (
-                <Navigate to="/host" replace />
-              ) : (
-                <Dashboard user={user} />
-              )
+            user?.role === "customer" ? (
+              <Dashboard user={user} />
+            ) : user ? (
+              <Navigate
+                to={getDashboardPath(user)}
+                replace
+              />
             ) : (
               <Navigate to="/login" replace />
             )
           }
         />
 
-        {/* Property Details and Booking */}
-        <Route
-          path="/properties/:id"
-          element={
-            <PropertyDetails user={user} />
-          }
-        />
-
-        {/* Customer Booking Management */}
         <Route
           path="/my-bookings"
           element={
@@ -116,14 +107,14 @@ export default function App() {
               <MyBookings user={user} />
             ) : (
               <Navigate
-                to={user ? getDashboardPath(user.role) : "/login"}
+                to={user ? getDashboardPath(user) : "/login"}
                 replace
               />
             )
           }
         />
 
-        {/* Host Dashboard */}
+        {/* Host routes */}
         <Route
           path="/host"
           element={
@@ -131,14 +122,13 @@ export default function App() {
               <HostDashboard user={user} />
             ) : (
               <Navigate
-                to={user ? getDashboardPath(user.role) : "/login"}
+                to={user ? getDashboardPath(user) : "/login"}
                 replace
               />
             )
           }
         />
 
-        {/* Add New Listing */}
         <Route
           path="/host/add-listing"
           element={
@@ -146,14 +136,13 @@ export default function App() {
               <AddListing user={user} />
             ) : (
               <Navigate
-                to={user ? getDashboardPath(user.role) : "/login"}
+                to={user ? getDashboardPath(user) : "/login"}
                 replace
               />
             )
           }
         />
 
-        {/* Edit Existing Listing */}
         <Route
           path="/host/edit-listing/:id"
           element={
@@ -161,14 +150,43 @@ export default function App() {
               <EditListing user={user} />
             ) : (
               <Navigate
-                to={user ? getDashboardPath(user.role) : "/login"}
+                to={user ? getDashboardPath(user) : "/login"}
                 replace
               />
             )
           }
         />
 
-        {/* Redirect Unknown URLs */}
+        <Route
+          path="/host/bookings"
+          element={
+            user?.role === "host" ? (
+              <HostBookings user={user} />
+            ) : (
+              <Navigate
+                to={user ? getDashboardPath(user) : "/login"}
+                replace
+              />
+            )
+          }
+        />
+
+        {/* Admin routes */}
+        <Route
+          path="/admin"
+          element={
+            user?.role === "admin" ? (
+              <AdminDashboard user={user} />
+            ) : (
+              <Navigate
+                to={user ? getDashboardPath(user) : "/login"}
+                replace
+              />
+            )
+          }
+        />
+
+        {/* Unknown routes */}
         <Route
           path="*"
           element={<Navigate to="/" replace />}
