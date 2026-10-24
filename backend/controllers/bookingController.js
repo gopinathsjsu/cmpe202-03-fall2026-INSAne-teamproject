@@ -1,8 +1,7 @@
-
 const { pool } = require("../config/db");
 
 // ==========================================
-// HELPER: Validate YYYY-MM-DD dates
+// HELPER: VALIDATE DATES
 // ==========================================
 const parseDate = (value) => {
   if (
@@ -26,7 +25,7 @@ const parseDate = (value) => {
 
 // ==========================================
 // POST /api/bookings
-// Customer: Create a reservation
+// CUSTOMER: CREATE RESERVATION
 // ==========================================
 const createBooking = async (req, res) => {
   try {
@@ -34,18 +33,12 @@ const createBooking = async (req, res) => {
       propertyId,
       checkIn,
       checkOut,
-      guests
+      guests,
     } = req.body || {};
 
-    // Validate property ID
-    if (!/^[1-9]\d*$/.test(String(propertyId))) {
-      return res.status(400).json({
-        message: "Invalid property ID"
-      });
-    }
-
-    // Validate guest count
+    // Validate property and guests.
     if (
+      !/^[1-9]\d*$/.test(String(propertyId)) ||
       guests === undefined ||
       guests === null ||
       guests === "" ||
@@ -53,47 +46,60 @@ const createBooking = async (req, res) => {
       Number(guests) < 1
     ) {
       return res.status(400).json({
-        message: "Guests must be a positive whole number"
+        message: "Invalid property ID or guest count",
       });
     }
 
-    // Validate dates
-    const startDate = parseDate(checkIn);
-    const endDate = parseDate(checkOut);
+    // Validate dates.
+    const start = parseDate(checkIn);
+    const end = parseDate(checkOut);
 
-    if (!startDate || !endDate) {
+    if (!start || !end) {
       return res.status(400).json({
-        message: "Dates must use YYYY-MM-DD format"
+        message: "Dates must use YYYY-MM-DD format",
       });
     }
 
-    // Calculate nights
     const nights =
-      (endDate.getTime() - startDate.getTime()) /
-      86400000;
+      (end.getTime() - start.getTime()) / 86400000;
 
-    // Enforce 1-14 night limit
     if (nights < 1 || nights > 14) {
       return res.status(400).json({
-        message: "Bookings must be between 1 and 14 nights"
+        message:
+          "Bookings must be between 1 and 14 nights",
       });
     }
 
-    // Prevent past check-in dates
-    const today = new Date().toISOString().slice(0, 10);
+    const local = new Date();
+
+    const today = [
+      local.getFullYear(),
+      String(local.getMonth() + 1).padStart(2, "0"),
+      String(local.getDate()).padStart(2, "0"),
+    ].join("-");
 
     if (checkIn < today) {
       return res.status(400).json({
-        message: "Check-in cannot be in the past"
+        message: "Check-in cannot be in the past",
       });
     }
 
-    // Find approved property
+    // ======================================
+    // FIND APPROVED PROPERTY AND SCHEDULE
+    // ======================================
     const propertyResult = await pool.query(
       `SELECT
          id,
          price_per_night,
-         max_guests
+         max_guests,
+         TO_CHAR(
+           available_from,
+           'YYYY-MM-DD'
+         ) AS available_from,
+         TO_CHAR(
+           available_to,
+           'YYYY-MM-DD'
+         ) AS available_to
        FROM properties
        WHERE id = $1
          AND status = 'approved'`,
@@ -102,20 +108,45 @@ const createBooking = async (req, res) => {
 
     if (propertyResult.rows.length === 0) {
       return res.status(404).json({
-        message: "Property not found or not approved"
+        message: "Property not found or not approved",
       });
     }
 
     const property = propertyResult.rows[0];
 
-    // Validate guest capacity
-    if (Number(guests) > property.max_guests) {
+    if (
+      Number(guests) >
+      Number(property.max_guests)
+    ) {
       return res.status(400).json({
-        message: "Guest count exceeds property capacity"
+        message: "Guest count exceeds property capacity",
       });
     }
 
-    // Calculate total price securely on backend
+    // ======================================
+    // VALIDATE HOST AVAILABILITY WINDOW
+    // Existing properties without dates
+    // remain bookable.
+    // ======================================
+    if (
+      (
+        property.available_from &&
+        checkIn < property.available_from
+      ) ||
+      (
+        property.available_to &&
+        checkOut > property.available_to
+      )
+    ) {
+      return res.status(409).json({
+        message:
+          "Dates are outside the host's availability window",
+      });
+    }
+
+    // ======================================
+    // CALCULATE TOTAL PRICE
+    // ======================================
     const nightlyCents = Math.round(
       Number(property.price_per_night) * 100
     );
@@ -124,8 +155,12 @@ const createBooking = async (req, res) => {
       (nightlyCents * nights) / 100
     ).toFixed(2);
 
-    // Create reservation
-    // PostgreSQL constraint prevents double booking
+    // ======================================
+    // CREATE BOOKING
+    // Repeat the property checks in SQL.
+    // PostgreSQL also prevents overlapping
+    // confirmed reservations.
+    // ======================================
     const result = await pool.query(
       `INSERT INTO bookings (
          user_id,
@@ -136,9 +171,26 @@ const createBooking = async (req, res) => {
          total_price,
          status
        )
-       VALUES (
-         $1, $2, $3, $4, $5, $6, 'confirmed'
-       )
+       SELECT
+         $1,
+         p.id,
+         $3::date,
+         $4::date,
+         $5,
+         $6,
+         'confirmed'
+       FROM properties p
+       WHERE p.id = $2
+         AND p.status = 'approved'
+         AND (
+           p.available_from IS NULL
+           OR $3::date >= p.available_from
+         )
+         AND (
+           p.available_to IS NULL
+           OR $4::date <= p.available_to
+         )
+         AND p.max_guests >= $5
        RETURNING *`,
       [
         req.user.id,
@@ -146,34 +198,43 @@ const createBooking = async (req, res) => {
         checkIn,
         checkOut,
         Number(guests),
-        totalPrice
+        totalPrice,
       ]
     );
 
-    return res.status(201).json({
-      message: "Booking created successfully",
-      booking: result.rows[0]
-    });
-
-  } catch (error) {
-    // PostgreSQL overlap constraint violation
-    if (error.code === "23P01") {
+    if (result.rows.length === 0) {
       return res.status(409).json({
-        message: "Property is unavailable for the selected dates"
+        message:
+          "Property is unavailable for the selected dates",
       });
     }
 
-    console.error("Create booking error:", error.message);
+    return res.status(201).json({
+      message: "Booking created successfully",
+      booking: result.rows[0],
+    });
+
+  } catch (error) {
+    // PostgreSQL exclusion constraint:
+    // overlapping confirmed bookings.
+    if (error.code === "23P01") {
+      return res.status(409).json({
+        message:
+          "Property is unavailable for the selected dates",
+      });
+    }
+
+    console.error("Create booking error:", error);
 
     return res.status(500).json({
-      message: "Failed to create booking"
+      message: "Failed to create booking",
     });
   }
 };
 
 // ==========================================
 // GET /api/bookings/mine
-// Customer: Retrieve own reservations
+// CUSTOMER: GET OWN BOOKINGS
 // ==========================================
 const getMyBookings = async (req, res) => {
   try {
@@ -182,8 +243,14 @@ const getMyBookings = async (req, res) => {
          b.id,
          b.user_id,
          b.property_id,
-         TO_CHAR(b.check_in, 'YYYY-MM-DD') AS check_in,
-         TO_CHAR(b.check_out, 'YYYY-MM-DD') AS check_out,
+         TO_CHAR(
+           b.check_in,
+           'YYYY-MM-DD'
+         ) AS check_in,
+         TO_CHAR(
+           b.check_out,
+           'YYYY-MM-DD'
+         ) AS check_out,
          b.guests,
          b.total_price,
          b.status,
@@ -201,35 +268,32 @@ const getMyBookings = async (req, res) => {
     );
 
     return res.status(200).json({
-      bookings: result.rows
+      bookings: result.rows,
     });
 
   } catch (error) {
-    console.error("Get my bookings error:", error.message);
+    console.error("Get my bookings error:", error);
 
     return res.status(500).json({
-      message: "Failed to retrieve bookings"
+      message: "Failed to retrieve bookings",
     });
   }
 };
 
 // ==========================================
 // PATCH /api/bookings/:id/cancel
-// Customer: Cancel own reservation
+// CUSTOMER: CANCEL OWN BOOKING
 // ==========================================
 const cancelBooking = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Validate booking ID
     if (!/^[1-9]\d*$/.test(id)) {
       return res.status(400).json({
-        message: "Invalid booking ID"
+        message: "Invalid booking ID",
       });
     }
 
-    // Cancel only confirmed bookings
-    // belonging to logged-in customer
     const result = await pool.query(
       `UPDATE bookings
        SET status = 'cancelled'
@@ -243,12 +307,11 @@ const cancelBooking = async (req, res) => {
     if (result.rows.length > 0) {
       return res.status(200).json({
         message: "Booking cancelled successfully",
-        booking: result.rows[0]
+        booking: result.rows[0],
       });
     }
 
-    // Check whether booking belongs to customer
-    const bookingResult = await pool.query(
+    const found = await pool.query(
       `SELECT id, status
        FROM bookings
        WHERE id = $1
@@ -256,28 +319,28 @@ const cancelBooking = async (req, res) => {
       [id, req.user.id]
     );
 
-    if (bookingResult.rows.length === 0) {
+    if (found.rows.length === 0) {
       return res.status(404).json({
-        message: "Booking not found or access denied"
+        message: "Booking not found or access denied",
       });
     }
 
     return res.status(409).json({
-      message: "Booking is already cancelled"
+      message: "Booking is already cancelled",
     });
 
   } catch (error) {
-    console.error("Cancel booking error:", error.message);
+    console.error("Cancel booking error:", error);
 
     return res.status(500).json({
-      message: "Failed to cancel booking"
+      message: "Failed to cancel booking",
     });
   }
 };
 
 // ==========================================
 // GET /api/bookings/host
-// Host: View reservations for owned properties
+// HOST: VIEW RESERVATIONS
 // ==========================================
 const getHostBookings = async (req, res) => {
   try {
@@ -286,8 +349,14 @@ const getHostBookings = async (req, res) => {
          b.id,
          b.property_id,
          b.user_id,
-         TO_CHAR(b.check_in, 'YYYY-MM-DD') AS check_in,
-         TO_CHAR(b.check_out, 'YYYY-MM-DD') AS check_out,
+         TO_CHAR(
+           b.check_in,
+           'YYYY-MM-DD'
+         ) AS check_in,
+         TO_CHAR(
+           b.check_out,
+           'YYYY-MM-DD'
+         ) AS check_out,
          b.guests,
          b.total_price,
          b.status,
@@ -308,24 +377,24 @@ const getHostBookings = async (req, res) => {
     );
 
     return res.status(200).json({
-      bookings: result.rows
+      bookings: result.rows,
     });
 
   } catch (error) {
-    console.error("Get host bookings error:", error.message);
+    console.error("Get host bookings error:", error);
 
     return res.status(500).json({
-      message: "Failed to retrieve host bookings"
+      message: "Failed to retrieve host bookings",
     });
   }
 };
 
 // ==========================================
-// EXPORT CONTROLLERS
+// EXPORT BOOKING CONTROLLERS
 // ==========================================
 module.exports = {
   createBooking,
   getMyBookings,
   cancelBooking,
-  getHostBookings
+  getHostBookings,
 };

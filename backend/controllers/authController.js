@@ -1,12 +1,23 @@
-
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { pool } = require("../config/db");
 
+// ==========================================
+// REGISTER USER
+// POST /api/auth/register
+// ==========================================
 const register = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const {
+      name,
+      email,
+      password,
+      role = "customer"
+    } = req.body || {};
 
+    // ======================================
+    // VALIDATE NAME, EMAIL, PASSWORD
+    // ======================================
     if (
       typeof name !== "string" ||
       !name.trim() ||
@@ -16,12 +27,34 @@ const register = async (req, res) => {
       password.length < 8
     ) {
       return res.status(400).json({
-        message: "Provide a name, email, and password of at least 8 characters."
+        message:
+          "Provide a name, email, and password of at least 8 characters."
       });
     }
 
+    // ======================================
+    // VALIDATE REGISTRATION ROLE
+    // ======================================
+    const allowedRoles = ["customer", "host"];
+
+    if (
+      typeof role !== "string" ||
+      !allowedRoles.includes(role)
+    ) {
+      return res.status(400).json({
+        message:
+          "Invalid role. You can only register as a customer or host."
+      });
+    }
+
+    // ======================================
+    // NORMALIZE EMAIL
+    // ======================================
     const normalizedEmail = email.trim().toLowerCase();
 
+    // ======================================
+    // CHECK EXISTING ACCOUNT
+    // ======================================
     const existing = await pool.query(
       "SELECT id FROM users WHERE LOWER(email) = $1",
       [normalizedEmail]
@@ -33,19 +66,39 @@ const register = async (req, res) => {
       });
     }
 
-    const passwordHash = await bcrypt.hash(password, 12);
+    // ======================================
+    // HASH PASSWORD
+    // ======================================
+    const passwordHash = await bcrypt.hash(
+      password,
+      12
+    );
 
+    // ======================================
+    // CREATE CUSTOMER OR HOST ACCOUNT
+    // ======================================
     const result = await pool.query(
-      `INSERT INTO users (name, email, password_hash, role)
-       VALUES ($1, $2, $3, 'customer')
-       RETURNING id, name, email, role`,
-      [name.trim(), normalizedEmail, passwordHash]
+      `INSERT INTO users (
+        name,
+        email,
+        password_hash,
+        role
+      )
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, name, email, role`,
+      [
+        name.trim(),
+        normalizedEmail,
+        passwordHash,
+        role
+      ]
     );
 
     return res.status(201).json({
       message: "Registration successful",
       user: result.rows[0]
     });
+
   } catch (error) {
     console.error("Registration error:", error.message);
 
@@ -61,10 +114,17 @@ const register = async (req, res) => {
   }
 };
 
+// ==========================================
+// LOGIN USER
+// POST /api/auth/login
+// ==========================================
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password } = req.body || {};
 
+    // ======================================
+    // VALIDATE LOGIN INPUT
+    // ======================================
     if (
       typeof email !== "string" ||
       typeof password !== "string"
@@ -74,6 +134,9 @@ const login = async (req, res) => {
       });
     }
 
+    // ======================================
+    // FIND USER
+    // ======================================
     const result = await pool.query(
       "SELECT * FROM users WHERE LOWER(email) = $1",
       [email.trim().toLowerCase()]
@@ -81,19 +144,39 @@ const login = async (req, res) => {
 
     const user = result.rows[0];
 
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+    // ======================================
+    // VERIFY PASSWORD
+    // ======================================
+    if (
+      !user ||
+      !(await bcrypt.compare(
+        password,
+        user.password_hash
+      ))
+    ) {
       return res.status(401).json({
         message: "Invalid email or password"
       });
     }
 
+    // ======================================
+    // GENERATE JWT
+    // ======================================
     const token = jwt.sign(
-      { userId: user.id, role: user.role },
+      {
+        userId: user.id,
+        role: user.role
+      },
       process.env.JWT_SECRET,
-      { expiresIn: "2h" }
+      {
+        expiresIn: "2h"
+      }
     );
 
-    return res.json({
+    // ======================================
+    // RETURN SESSION
+    // ======================================
+    return res.status(200).json({
       message: "Login successful",
       token,
       user: {
@@ -103,12 +186,17 @@ const login = async (req, res) => {
         role: user.role
       }
     });
+
   } catch (error) {
     console.error("Login error:", error.message);
+
     return res.status(500).json({
       message: "Login failed"
     });
   }
 };
 
-module.exports = { register, login };
+module.exports = {
+  register,
+  login
+};

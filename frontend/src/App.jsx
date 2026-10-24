@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   BrowserRouter,
@@ -44,11 +44,12 @@ import AdminDashboard from "./pages/AdminDashboard";
 // ==========================================
 import {
   getCurrentUser,
+  getTokenExpirationMs,
   logoutUser,
 } from "./services/auth";
 
 // ==========================================
-// HELPER: Determine dashboard by user role
+// HELPER: DASHBOARD FOR USER ROLE
 // ==========================================
 function getDashboardPath(user) {
   if (user?.role === "host") {
@@ -66,32 +67,155 @@ function getDashboardPath(user) {
 // MAIN APPLICATION
 // ==========================================
 export default function App() {
-  // Load existing authenticated user
+  // Load and validate saved session.
   const [user, setUser] = useState(getCurrentUser);
 
   // ==========================================
   // HANDLE LOGIN
   // ==========================================
-  const handleLogin = (loggedInUser) => {
-    setUser(loggedInUser);
-  };
+  function handleLogin(loggedInUser) {
+    // Re-read validated session from auth.js.
+    const session = getCurrentUser();
+
+    setUser(session || null);
+
+    if (!session) {
+      console.warn(
+        "Login session is missing or expired."
+      );
+    }
+  }
 
   // ==========================================
   // HANDLE LOGOUT
   // ==========================================
-  const handleLogout = () => {
-    // Remove JWT and saved session
+  function handleLogout() {
     logoutUser();
-
-    // Clear React authentication state
     setUser(null);
-  };
+  }
 
+  // ==========================================
+  // AUTOMATIC SESSION EXPIRATION
+  // ==========================================
+  useEffect(() => {
+    if (!user) return;
+
+    const expiration = getTokenExpirationMs();
+
+    if (expiration === null) {
+      logoutUser();
+      setUser(null);
+      return;
+    }
+
+    const millisecondsUntilExpiration =
+      expiration - Date.now();
+
+    if (millisecondsUntilExpiration <= 0) {
+      logoutUser();
+      setUser(null);
+      return;
+    }
+
+    // Schedule logout when JWT expires.
+    // Delay is capped for browser timer limits.
+    const timeoutId = window.setTimeout(() => {
+      setUser(getCurrentUser());
+    }, Math.min(
+      millisecondsUntilExpiration + 100,
+      2147483647
+    ));
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [user]);
+
+  // ==========================================
+  // CHECK SESSION ON TAB FOCUS,
+  // VISIBILITY CHANGE, AND OTHER TABS
+  // ==========================================
+  useEffect(() => {
+    function refreshSession() {
+      const currentUser = getCurrentUser();
+
+      setUser((previous) => {
+        if (
+          !previous &&
+          !currentUser
+        ) {
+          return previous;
+        }
+
+        if (
+          previous?.id === currentUser?.id &&
+          previous?.role === currentUser?.role &&
+          previous?.name === currentUser?.name &&
+          previous?.email === currentUser?.email
+        ) {
+          return previous;
+        }
+
+        return currentUser;
+      });
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        refreshSession();
+      }
+    }
+
+    function handleStorage(event) {
+      if (
+        event.key === "rental_app_token" ||
+        event.key === "rental_app_session" ||
+        event.key === null
+      ) {
+        refreshSession();
+      }
+    }
+
+    window.addEventListener(
+      "focus",
+      refreshSession
+    );
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    );
+
+    window.addEventListener(
+      "storage",
+      handleStorage
+    );
+
+    return () => {
+      window.removeEventListener(
+        "focus",
+        refreshSession
+      );
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      );
+
+      window.removeEventListener(
+        "storage",
+        handleStorage
+      );
+    };
+  }, []);
+
+  // ==========================================
+  // RENDER APPLICATION
+  // ==========================================
   return (
     <BrowserRouter>
-      {/* ======================================
-          NAVIGATION BAR
-      ====================================== */}
+
+      {/* NAVIGATION BAR */}
       <Navbar
         user={user}
         onLogout={handleLogout}
@@ -156,10 +280,7 @@ export default function App() {
                 replace
               />
             ) : (
-              <Navigate
-                to="/login"
-                replace
-              />
+              <Navigate to="/login" replace />
             )
           }
         />
@@ -287,10 +408,7 @@ export default function App() {
         <Route
           path="*"
           element={
-            <Navigate
-              to="/"
-              replace
-            />
+            <Navigate to="/" replace />
           }
         />
 

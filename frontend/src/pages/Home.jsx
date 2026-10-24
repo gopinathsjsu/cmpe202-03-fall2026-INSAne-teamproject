@@ -1,8 +1,44 @@
-import { useState } from "react";
-import PropertyCard from "../components/PropertyCard";
-import { getAvailableProperties } from "../services/properties";
+import { useEffect, useState } from "react";
 
+import PropertyCard from "../components/PropertyCard";
+import { getBackendProperties } from "../services/backendProperties";
+
+// ==========================================
+// HELPER: GET TODAY'S DATE
+// ==========================================
+function getToday() {
+  const now = new Date();
+
+  return [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+// ==========================================
+// HELPER: CALCULATE NIGHTS
+// ==========================================
+function calculateNights(checkIn, checkOut) {
+  if (!checkIn || !checkOut) return 0;
+
+  const start = Date.parse(`${checkIn}T00:00:00Z`);
+  const end = Date.parse(`${checkOut}T00:00:00Z`);
+
+  return (end - start) / 86400000;
+}
+
+// ==========================================
+// HOMEPAGE
+// ==========================================
 export default function Home() {
+  // ==========================================
+  // PROPERTY STATES
+  // ==========================================
+  const [properties, setProperties] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
   // ==========================================
   // SEARCH STATES
   // ==========================================
@@ -15,53 +51,48 @@ export default function Home() {
   const [error, setError] = useState("");
 
   // ==========================================
-  // GET AVAILABLE PROPERTIES
+  // LOAD APPROVED PROPERTIES FROM POSTGRESQL
   // ==========================================
-  const properties = getAvailableProperties();
+  useEffect(() => {
+    let active = true;
 
-  // ==========================================
-  // HELPER: LOCAL TODAY DATE
-  // ==========================================
-  const getToday = () => {
-    const today = new Date();
+    async function loadProperties() {
+      setLoading(true);
+      setLoadError("");
 
-    const year = today.getFullYear();
-    const month = String(
-      today.getMonth() + 1
-    ).padStart(2, "0");
+      try {
+        const data = await getBackendProperties();
 
-    const day = String(
-      today.getDate()
-    ).padStart(2, "0");
+        if (active) {
+          setProperties(data);
+        }
+      } catch (err) {
+        if (active) {
+          setLoadError(
+            err.message || "Failed to load properties."
+          );
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
 
-    return `${year}-${month}-${day}`;
-  };
+    loadProperties();
 
-  // ==========================================
-  // HELPER: CALCULATE NIGHTS
-  // ==========================================
-  const calculateNights = (start, end) => {
-    if (!start || !end) return 0;
-
-    const startDate = Date.parse(
-      `${start}T00:00:00Z`
-    );
-
-    const endDate = Date.parse(
-      `${end}T00:00:00Z`
-    );
-
-    return (endDate - startDate) / 86400000;
-  };
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // ==========================================
   // HANDLE SEARCH
   // ==========================================
-  const handleSearch = (event) => {
+  function handleSearch(event) {
     event.preventDefault();
     setError("");
 
-    // Validate dates
     if (checkIn || checkOut) {
       if (!checkIn || !checkOut) {
         setError(
@@ -70,15 +101,10 @@ export default function Home() {
         return;
       }
 
-      const nights = calculateNights(
-        checkIn,
-        checkOut
-      );
+      const nights = calculateNights(checkIn, checkOut);
 
       if (checkIn < getToday()) {
-        setError(
-          "Check-in date cannot be in the past."
-        );
+        setError("Check-in cannot be in the past.");
         return;
       }
 
@@ -94,7 +120,6 @@ export default function Home() {
       }
     }
 
-    // Validate guest count
     const guestCount = Number(guests);
 
     if (
@@ -102,77 +127,67 @@ export default function Home() {
       guestCount < 1 ||
       guestCount > 20
     ) {
-      setError(
-        "Please enter between 1 and 20 guests."
-      );
+      setError("Please enter between 1 and 20 guests.");
       return;
     }
 
-    // Apply filters
     setAppliedFilters({
       location: location.trim().toLowerCase(),
       checkIn,
       checkOut,
       guests: guestCount,
     });
-  };
+  }
 
   // ==========================================
   // RESET SEARCH
   // ==========================================
-  const resetSearch = () => {
+  function resetSearch() {
     setLocation("");
     setCheckIn("");
     setCheckOut("");
     setGuests(1);
     setAppliedFilters(null);
     setError("");
-  };
+  }
 
   // ==========================================
   // FILTER PROPERTIES
   // ==========================================
-  const filteredProperties = properties.filter(
-    (property) => {
-      if (!appliedFilters) {
-        return true;
-      }
-
-      const locationText = [
-        property.title,
-        property.city,
-        property.state,
-        property.zipCode,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
-      const matchesLocation =
-        !appliedFilters.location ||
-        locationText.includes(
-          appliedFilters.location
-        );
-
-      const matchesGuests =
-        Number(property.guests) >=
-        appliedFilters.guests;
-
-      // Date overlap checks will be handled
-      // by the backend booking API.
-      return matchesLocation && matchesGuests;
+  const filteredProperties = properties.filter((property) => {
+    if (!appliedFilters) {
+      return true;
     }
-  );
 
-  // ==========================================
-  // RENDER HOMEPAGE
-  // ==========================================
+    const locationText = [
+      property.title,
+      property.city,
+      property.state,
+      property.zip_code,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    const matchesLocation =
+      !appliedFilters.location ||
+      locationText.includes(appliedFilters.location);
+
+    const matchesGuests =
+      Number(property.max_guests) >= appliedFilters.guests;
+
+    // Dates are validated here.
+    // Overlapping reservations are prevented
+    // by PostgreSQL when a customer books.
+    return matchesLocation && matchesGuests;
+  });
+
   return (
     <main className="rental-home">
 
-      {/* =====================================
+      {/* ======================================
           HERO SECTION
-      ===================================== */}
+      ====================================== */}
       <section className="hero-section">
 
         <div className="hero-content">
@@ -187,9 +202,7 @@ export default function Home() {
           </p>
         </div>
 
-        {/* =================================
-            SEARCH BAR
-        ================================= */}
+        {/* SEARCH BAR */}
         <form
           className="search-bar"
           onSubmit={handleSearch}
@@ -247,7 +260,7 @@ export default function Home() {
               />
             </div>
 
-            {/* GUESTS */}
+            {/* GUEST COUNT */}
             <div className="search-field guests-field">
               <label htmlFor="guests">
                 Guests
@@ -262,6 +275,7 @@ export default function Home() {
                 onChange={(event) =>
                   setGuests(event.target.value)
                 }
+                required
               />
             </div>
 
@@ -275,6 +289,7 @@ export default function Home() {
 
           </div>
 
+          {/* SEARCH ERROR */}
           {error && (
             <p
               className="search-error"
@@ -284,6 +299,7 @@ export default function Home() {
             </p>
           )}
 
+          {/* CLEAR SEARCH */}
           {appliedFilters && (
             <button
               type="button"
@@ -297,9 +313,9 @@ export default function Home() {
         </form>
       </section>
 
-      {/* =====================================
+      {/* ======================================
           PROPERTY LISTINGS
-      ===================================== */}
+      ====================================== */}
       <section className="listings-section">
 
         <div className="listings-heading">
@@ -311,52 +327,71 @@ export default function Home() {
             </h2>
 
             <p>
+              Browse verified, approved property listings.
+            </p>
+          </div>
+
+          {!loading && !loadError && (
+            <span className="listing-count">
               {filteredProperties.length}{" "}
               {filteredProperties.length === 1
                 ? "property"
-                : "properties"}{" "}
-              available to explore
-            </p>
-          </div>
+                : "properties"}
+            </span>
+          )}
         </div>
 
-        {/* =================================
-            NO RESULTS
-        ================================= */}
-        {filteredProperties.length === 0 ? (
+        {/* LOADING STATE */}
+        {loading ? (
+          <div className="empty-results">
+            <h3>Loading properties...</h3>
+            <p>Finding stays for your next trip.</p>
+          </div>
+        ) : loadError ? (
+
+          /* ERROR STATE */
+          <div className="empty-results">
+            <h3>Unable to load properties</h3>
+            <p role="alert">{loadError}</p>
+            <p>
+              Please make sure the backend is running
+              on port 5001.
+            </p>
+          </div>
+        ) : filteredProperties.length === 0 ? (
+
+          /* EMPTY STATE */
           <div className="empty-results">
             <h3>No properties found</h3>
 
             <p>
-              Try another location or adjust
-              your guest count.
+              {appliedFilters
+                ? "Try another location or adjust your guest count."
+                : "No approved properties are available yet."}
             </p>
 
-            <button
-              type="button"
-              className="primary-btn"
-              onClick={resetSearch}
-            >
-              Clear Search
-            </button>
+            {appliedFilters && (
+              <button
+                type="button"
+                className="primary-btn"
+                onClick={resetSearch}
+              >
+                Clear Search
+              </button>
+            )}
           </div>
         ) : (
 
-          /* ===============================
-              PROPERTY GRID
-          =============================== */
+          /* REAL PROPERTY GRID */
           <div className="property-grid">
-            {filteredProperties.map(
-              (property) => (
-                <PropertyCard
-                  key={property.id}
-                  property={property}
-                />
-              )
-            )}
+            {filteredProperties.map((property) => (
+              <PropertyCard
+                key={property.id}
+                property={property}
+              />
+            ))}
           </div>
         )}
-
       </section>
     </main>
   );

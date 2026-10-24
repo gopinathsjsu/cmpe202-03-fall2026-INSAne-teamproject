@@ -1,14 +1,13 @@
-
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { getCurrentUser } from "../services/auth";
-import { getPropertyById } from "../services/properties";
-import {
-  checkAvailability,
-  calculateNights,
-  getBookings,
-} from "../services/bookingavailability";
 
+import { getCurrentUser } from "../services/auth";
+import { getBackendPropertyById } from "../services/backendProperties";
+import { createBooking } from "../services/bookings";
+
+// ==========================================
+// HELPER: GET TODAY'S DATE
+// ==========================================
 function getToday() {
   const now = new Date();
 
@@ -19,58 +18,242 @@ function getToday() {
   ].join("-");
 }
 
+// ==========================================
+// HELPER: CALCULATE NUMBER OF NIGHTS
+// ==========================================
+function calculateNights(checkIn, checkOut) {
+  if (!checkIn || !checkOut) return 0;
+
+  const start = Date.parse(`${checkIn}T00:00:00Z`);
+  const end = Date.parse(`${checkOut}T00:00:00Z`);
+
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    return 0;
+  }
+
+  return (end - start) / 86400000;
+}
+
+// ==========================================
+// HELPER: FORMAT PRICE
+// ==========================================
+function formatPrice(value) {
+  return Number(value || 0).toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+  });
+}
+
+// ==========================================
+// HELPER: NORMALIZE AMENITIES
+// ==========================================
+function getAmenities(amenities) {
+  if (Array.isArray(amenities)) {
+    return amenities;
+  }
+
+  if (typeof amenities === "string") {
+    return amenities
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  if (amenities && typeof amenities === "object") {
+    return Object.entries(amenities)
+      .filter(([, enabled]) => Boolean(enabled))
+      .map(([name]) => name);
+  }
+
+  return [];
+}
+
+// ==========================================
+// PROPERTY DETAILS PAGE
+// ==========================================
 export default function PropertyDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const property = getPropertyById(id);
   const user = getCurrentUser();
+
+  const [property, setProperty] = useState(null);
+
+  const [loading, setLoading] = useState(true);
+  const [bookingLoading, setBookingLoading] = useState(false);
 
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
   const [guests, setGuests] = useState(1);
+
   const [availability, setAvailability] = useState(null);
   const [error, setError] = useState("");
+  const [propertyError, setPropertyError] = useState("");
 
-  if (!property) {
+  // ==========================================
+  // LOAD PROPERTY FROM POSTGRESQL
+  // ==========================================
+  useEffect(() => {
+    let active = true;
+
+    async function loadProperty() {
+      setLoading(true);
+      setPropertyError("");
+      setProperty(null);
+      setCheckIn("");
+      setCheckOut("");
+      setGuests(1);
+      setAvailability(null);
+      setError("");
+
+      try {
+        const data = await getBackendPropertyById(id);
+
+        if (active) {
+          setProperty(data);
+        }
+      } catch (err) {
+        if (active) {
+          setPropertyError(
+            err.message || "Failed to load property."
+          );
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadProperty();
+
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
+  // ==========================================
+  // LOADING STATE
+  // ==========================================
+  if (loading) {
     return (
-      <div className="property-details-page">
-        <h2>Property Not Found</h2>
-        <p>This property does not exist or is no longer available.</p>
-        <button onClick={() => navigate("/")}>
-          Back to Home
-        </button>
-      </div>
+      <main className="details-page">
+        <h2>Loading property...</h2>
+        <p>Retrieving property information.</p>
+      </main>
     );
   }
 
+  // ==========================================
+  // PROPERTY NOT FOUND
+  // ==========================================
+  if (!property) {
+    return (
+      <main className="details-page">
+        <h2>Property Not Available</h2>
+
+        <p>
+          {propertyError ||
+            "This property does not exist or is not approved."}
+        </p>
+
+        <button
+          type="button"
+          className="primary-btn"
+          onClick={() => navigate("/")}
+        >
+          Back to Home
+        </button>
+      </main>
+    );
+  }
+
+  // ==========================================
+  // PROPERTY INFORMATION
+  // ==========================================
   const today = getToday();
-  const maxGuests = Number(property.guests) || 1;
-  const price = Number(property.price) || 0;
+
+  const maxGuests = Number(property.max_guests) || 1;
+  const price = Number(property.price_per_night) || 0;
 
   const nights = calculateNights(checkIn, checkOut);
+
   const validNights =
-    Number.isFinite(nights) && nights >= 1 && nights <= 14;
+    Number.isFinite(nights) &&
+    nights >= 1 &&
+    nights <= 14;
 
   const total = validNights ? nights * price : 0;
 
-  const handleCheckAvailability = () => {
+  const amenities = getAmenities(property.amenities);
+
+  const image = property.image_url;
+
+  // ==========================================
+  // VALIDATE RESERVATION INPUT
+  // ==========================================
+  function validateBooking() {
+    if (!checkIn || !checkOut) {
+      return "Please select both check-in and check-out dates.";
+    }
+
+    if (checkIn < today) {
+      return "Check-in cannot be in the past.";
+    }
+
+    if (!validNights) {
+      return "Bookings must be between 1 and 14 nights.";
+    }
+
+    const guestCount = Number(guests);
+
+    if (
+      !Number.isInteger(guestCount) ||
+      guestCount < 1 ||
+      guestCount > maxGuests
+    ) {
+      return `Please select between 1 and ${maxGuests} guests.`;
+    }
+
+    return null;
+  }
+
+  // ==========================================
+  // CHECK INPUTS
+  // Actual availability is enforced by
+  // PostgreSQL when the booking is created.
+  // ==========================================
+  function handleCheckAvailability() {
     setError("");
 
-    const result = checkAvailability(
-      property.id,
-      checkIn,
-      checkOut
-    );
+    const validationError = validateBooking();
 
-    setAvailability(result);
-  };
+    if (validationError) {
+      setAvailability({
+        available: false,
+        message: validationError,
+      });
+      return;
+    }
 
-  const handleBooking = (e) => {
-    e.preventDefault();
+    setAvailability({
+      available: null,
+      message:
+        "Your dates and guest count are valid. Actual availability will be confirmed when you reserve.",
+    });
+  }
+
+  // ==========================================
+  // CREATE BOOKING IN POSTGRESQL
+  // ==========================================
+  async function handleBooking(event) {
+    event.preventDefault();
     setError("");
+    setAvailability(null);
 
-    // Customers must be logged in before booking.
+    if (bookingLoading) return;
+
+    // Require customer authentication
     if (!user) {
       navigate("/login");
       return;
@@ -81,58 +264,43 @@ export default function PropertyDetails() {
       return;
     }
 
-    // Validate the number of guests.
-    if (
-      !Number.isInteger(Number(guests)) ||
-      Number(guests) < 1 ||
-      Number(guests) > maxGuests
-    ) {
+    // Validate reservation details
+    const validationError = validateBooking();
+
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setBookingLoading(true);
+
+    try {
+      // Create booking through Express API
+      // PostgreSQL prevents overlapping stays.
+      await createBooking({
+        propertyId: property.id,
+        checkIn,
+        checkOut,
+        guests: Number(guests),
+      });
+
+      // Booking was saved successfully
+      navigate("/my-bookings");
+
+    } catch (err) {
+      // Includes 409 Conflict for booked dates
       setError(
-        `Please select between 1 and ${maxGuests} guests.`
+        err.message || "Failed to create reservation."
       );
-      return;
+    } finally {
+      setBookingLoading(false);
     }
-
-    // Recheck availability immediately before saving.
-    const result = checkAvailability(
-      property.id,
-      checkIn,
-      checkOut
-    );
-
-    setAvailability(result);
-
-    if (!result.available) {
-      return;
-    }
-
-    // Create the booking using the existing data format.
-    const newBooking = {
-      id: crypto.randomUUID(),
-      userId: user.id,
-      propertyId: property.id,
-      propertyTitle: property.title,
-      checkIn,
-      checkOut,
-      guests: Number(guests),
-      nights,
-      total,
-      status: "confirmed",
-      createdAt: new Date().toISOString(),
-    };
-
-    const existingBookings = getBookings();
-
-    localStorage.setItem(
-      "staynest_bookings",
-      JSON.stringify([...existingBookings, newBooking])
-    );
-
-    navigate("/my-bookings");
-  };
+  }
 
   return (
-    <div className="property-details-page">
+    <main className="property-details-page">
+
+      {/* BACK BUTTON */}
       <button
         type="button"
         onClick={() => navigate("/")}
@@ -141,22 +309,49 @@ export default function PropertyDetails() {
         ← Back to Properties
       </button>
 
+      {/* PROPERTY TITLE */}
       <h1>{property.title}</h1>
 
+      {/* PROPERTY LOCATION */}
       <p className="property-location">
         {property.city}, {property.state}
-        {property.zipCode ? ` ${property.zipCode}` : ""}
+        {property.zip_code
+          ? ` ${property.zip_code}`
+          : ""}
       </p>
 
       <div className="property-details-layout">
-        {/* Property information */}
-        <div className="property-details-content">
-          <img
-            src={property.image}
-            alt={property.title}
-            className="property-details-image"
-          />
 
+        {/* ==================================
+            PROPERTY INFORMATION
+        ================================== */}
+        <div className="property-details-content">
+
+          {/* PROPERTY IMAGE */}
+          {image ? (
+            <img
+              src={image}
+              alt={property.title}
+              className="property-details-image"
+            />
+          ) : (
+            <div
+              className="property-details-image"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                minHeight: "240px",
+                background: "#f5f5f5",
+                borderRadius: "12px",
+                color: "#777",
+              }}
+            >
+              Property image coming soon
+            </div>
+          )}
+
+          {/* DESCRIPTION */}
           <h2>About This Property</h2>
 
           <p>
@@ -164,7 +359,9 @@ export default function PropertyDetails() {
               `Enjoy your stay at ${property.title}, located in ${property.city}, ${property.state}.`}
           </p>
 
+          {/* PROPERTY DETAILS */}
           <div className="property-details-info">
+
             <p>
               <strong>Guests:</strong> Up to {maxGuests}
             </p>
@@ -174,154 +371,205 @@ export default function PropertyDetails() {
               {property.bedrooms || 1}
             </p>
 
-            {Number(property.reviews) > 0 && (
-              <p>
-                <strong>Rating:</strong> ⭐ {property.rating} (
-                {property.reviews} reviews)
-              </p>
-            )}
           </div>
 
+          {/* AMENITIES */}
           <h2>Amenities</h2>
 
-          {property.amenities &&
-          property.amenities.length > 0 ? (
+          {amenities.length > 0 ? (
             <div className="property-amenities">
-              {(Array.isArray(property.amenities)
-                ? property.amenities
-                : String(property.amenities).split(",")
-              ).map((amenity, index) => (
-                <span key={index} className="amenity-tag">
-                  {String(amenity).trim()}
+
+              {amenities.map((amenity, index) => (
+                <span
+                  key={index}
+                  className="amenity-tag"
+                >
+                  {String(amenity)}
                 </span>
               ))}
+
             </div>
           ) : (
             <p>No amenities listed.</p>
           )}
+
         </div>
 
-        {/* Booking section */}
+        {/* ==================================
+            BOOKING SECTION
+        ================================== */}
         <div className="property-booking-section">
+
           <div className="property-booking-card">
+
+            {/* PRICE PER NIGHT */}
             <h2>
-              ${price.toLocaleString()}{" "}
+              {formatPrice(price)}{" "}
               <span>/ night</span>
             </h2>
 
             <form onSubmit={handleBooking}>
+
+              {/* DATES */}
               <div className="booking-date-fields">
+
                 <div>
-                  <label htmlFor="checkIn">Check-in</label>
+                  <label htmlFor="checkIn">
+                    Check-in
+                  </label>
 
                   <input
                     id="checkIn"
                     type="date"
                     min={today}
                     value={checkIn}
-                    onChange={(e) => {
-                      setCheckIn(e.target.value);
+                    onChange={(event) => {
+                      setCheckIn(event.target.value);
                       setAvailability(null);
                       setError("");
                     }}
+                    disabled={bookingLoading}
                     required
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="checkOut">Check-out</label>
+                  <label htmlFor="checkOut">
+                    Check-out
+                  </label>
 
                   <input
                     id="checkOut"
                     type="date"
                     min={checkIn || today}
                     value={checkOut}
-                    onChange={(e) => {
-                      setCheckOut(e.target.value);
+                    onChange={(event) => {
+                      setCheckOut(event.target.value);
                       setAvailability(null);
                       setError("");
                     }}
+                    disabled={bookingLoading}
                     required
                   />
                 </div>
+
               </div>
 
+              {/* GUEST SELECTION */}
               <div className="booking-guests-field">
-                <label htmlFor="guests">Guests</label>
+
+                <label htmlFor="guests">
+                  Guests
+                </label>
 
                 <select
                   id="guests"
                   value={guests}
-                  onChange={(e) => {
-                    setGuests(Number(e.target.value));
+                  onChange={(event) => {
+                    setGuests(Number(event.target.value));
+                    setAvailability(null);
                     setError("");
                   }}
+                  disabled={bookingLoading}
                 >
+
                   {Array.from(
                     { length: maxGuests },
                     (_, index) => index + 1
                   ).map((number) => (
-                    <option key={number} value={number}>
+                    <option
+                      key={number}
+                      value={number}
+                    >
                       {number}{" "}
-                      {number === 1 ? "guest" : "guests"}
+                      {number === 1
+                        ? "guest"
+                        : "guests"}
                     </option>
                   ))}
+
                 </select>
               </div>
 
+              {/* DATE VALIDATION */}
               <button
                 type="button"
                 onClick={handleCheckAvailability}
                 className="check-availability-btn"
+                disabled={bookingLoading}
               >
-                Check Availability
+                Validate Dates
               </button>
 
+              {/* VALIDATION MESSAGE */}
               {availability && (
                 <p
                   className={
-                    availability.available
-                      ? "availability-success"
-                      : "availability-error"
+                    availability.available === false
+                      ? "availability-error"
+                      : "availability-success"
                   }
+                  role="status"
                 >
                   {availability.message}
                 </p>
               )}
 
+              {/* API ERROR MESSAGE */}
               {error && (
-                <p className="availability-error">
+                <p
+                  className="availability-error"
+                  role="alert"
+                >
                   {error}
                 </p>
               )}
 
+              {/* PRICE BREAKDOWN */}
               {validNights && (
                 <div className="booking-price-summary">
+
                   <p>
-                    ${price.toLocaleString()} × {nights}{" "}
-                    {nights === 1 ? "night" : "nights"}
+                    {formatPrice(price)} × {nights}{" "}
+                    {nights === 1
+                      ? "night"
+                      : "nights"}
                   </p>
 
                   <h3>
-                    Total: ${total.toLocaleString()}
+                    Total: {formatPrice(total)}
                   </h3>
+
                 </div>
               )}
 
+              {/* RESERVE BUTTON */}
               <button
                 type="submit"
                 className="book-now-btn"
+                disabled={bookingLoading}
               >
-                Reserve Now
+                {bookingLoading
+                  ? "Processing reservation..."
+                  : "Reserve Now"}
               </button>
 
+              {/* BOOKING NOTES */}
               <p className="booking-note">
                 Maximum stay: 14 nights.
               </p>
+
+              <p className="booking-note">
+                Availability and final price are
+                confirmed by the backend.
+              </p>
+
             </form>
+
           </div>
+
         </div>
       </div>
-    </div>
+    </main>
   );
 }

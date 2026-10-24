@@ -1,15 +1,21 @@
-
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { properties } from "../data/properties";
+
 import ReviewForm from "../components/ReviewForm.jsx";
 
-const BOOKINGS_KEY = "staynest_bookings";
+import {
+  getMyBookings,
+  cancelCustomerBooking,
+} from "../services/bookings";
+
 const REVIEWS_KEY = "staynest_reviews";
 
-// Get today's date in YYYY-MM-DD format
+// ==========================================
+// HELPER: GET TODAY
+// ==========================================
 function getToday() {
   const date = new Date();
+
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
@@ -17,49 +23,152 @@ function getToday() {
   return `${year}-${month}-${day}`;
 }
 
-// Read mock data from localStorage
-function readStorage(key) {
+// ==========================================
+// HELPER: READ LOCAL REVIEWS
+// Reviews will get a backend API later
+// ==========================================
+function readReviews() {
   try {
-    const data = JSON.parse(localStorage.getItem(key) || "[]");
+    const data = JSON.parse(
+      localStorage.getItem(REVIEWS_KEY) || "[]"
+    );
+
     return Array.isArray(data) ? data : [];
   } catch {
     return [];
   }
 }
 
-// Format booking dates
-function formatDate(date) {
-  return new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
+// ==========================================
+// HELPER: FORMAT BOOKING DATES
+// ==========================================
+function formatDate(value) {
+  if (!value) return "N/A";
+
+  const dateString = String(value).slice(0, 10);
+
+  const date = new Date(`${dateString}T12:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return dateString;
+  }
+
+  return date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
   });
 }
 
-export default function MyBookings({ user }) {
-  const [bookings, setBookings] = useState(() =>
-    readStorage(BOOKINGS_KEY)
-  );
+// ==========================================
+// HELPER: CALCULATE NIGHTS
+// ==========================================
+function calculateNights(checkIn, checkOut) {
+  const start = Date.parse(`${checkIn}T00:00:00Z`);
+  const end = Date.parse(`${checkOut}T00:00:00Z`);
 
-  const [reviews, setReviews] = useState(() =>
-    readStorage(REVIEWS_KEY)
-  );
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    return 0;
+  }
+
+  return Math.round((end - start) / 86400000);
+}
+
+// ==========================================
+// HELPER: FORMAT CURRENCY
+// ==========================================
+function formatMoney(amount) {
+  return Number(amount || 0).toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+  });
+}
+
+// ==========================================
+// HELPER: NORMALIZE BACKEND BOOKING
+// ==========================================
+function normalizeBooking(booking) {
+  const checkIn = String(booking.check_in).slice(0, 10);
+  const checkOut = String(booking.check_out).slice(0, 10);
+
+  return {
+    id: String(booking.id),
+    userId: String(booking.user_id),
+    propertyId: String(booking.property_id),
+
+    propertyTitle: booking.property_title,
+    city: booking.city,
+    state: booking.state,
+    image: booking.image_url,
+
+    checkIn,
+    checkOut,
+
+    guests: Number(booking.guests),
+    nights: calculateNights(checkIn, checkOut),
+    total: Number(booking.total_price),
+
+    status: booking.status,
+    createdAt: booking.created_at,
+  };
+}
+
+// ==========================================
+// MY BOOKINGS PAGE
+// ==========================================
+export default function MyBookings({ user }) {
+  const [bookings, setBookings] = useState([]);
+  const [reviews, setReviews] = useState(readReviews);
 
   const [filter, setFilter] = useState("all");
   const [reviewBookingId, setReviewBookingId] = useState(null);
+
   const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  const [loading, setLoading] = useState(true);
+  const [cancellingId, setCancellingId] = useState(null);
 
   const today = getToday();
 
-  // Show bookings belonging to the logged-in customer
-  const myBookings = bookings
-    .filter((booking) => booking.userId === user.id)
-    .sort((a, b) =>
-      (b.createdAt || "").localeCompare(a.createdAt || "")
-    );
+  // ==========================================
+  // LOAD BOOKINGS FROM POSTGRESQL
+  // ==========================================
+  useEffect(() => {
+    let active = true;
 
-  // Filter bookings by status and dates
-  const visibleBookings = myBookings.filter((booking) => {
+    async function loadBookings() {
+      setLoading(true);
+      setError("");
+
+      try {
+        const data = await getMyBookings();
+
+        if (active) {
+          setBookings(data.map(normalizeBooking));
+        }
+      } catch (err) {
+        if (active) {
+          setError(err.message || "Failed to load bookings.");
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadBookings();
+
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  // ==========================================
+  // FILTER BOOKINGS
+  // ==========================================
+  const visibleBookings = bookings.filter((booking) => {
     if (filter === "upcoming") {
       return (
         booking.status === "confirmed" &&
@@ -81,12 +190,14 @@ export default function MyBookings({ user }) {
     return true;
   });
 
-  // Cancel an eligible reservation
-  function cancelBooking(bookingId) {
+  // ==========================================
+  // CANCEL BOOKING THROUGH BACKEND
+  // ==========================================
+  async function handleCancelBooking(bookingId) {
+    if (cancellingId !== null) return;
+
     const booking = bookings.find(
-      (item) =>
-        item.id === bookingId &&
-        item.userId === user.id
+      (item) => item.id === String(bookingId)
     );
 
     if (
@@ -104,31 +215,45 @@ export default function MyBookings({ user }) {
 
     if (!confirmed) return;
 
-    const updatedBookings = bookings.map((item) =>
-      item.id === bookingId
-        ? { ...item, status: "cancelled" }
-        : item
-    );
+    setError("");
+    setMessage("");
+    setCancellingId(bookingId);
 
-    localStorage.setItem(
-      BOOKINGS_KEY,
-      JSON.stringify(updatedBookings)
-    );
+    try {
+      await cancelCustomerBooking(bookingId);
 
-    setBookings(updatedBookings);
-    setMessage("Your reservation has been cancelled.");
+      // Update UI only after PostgreSQL confirms cancellation
+      setBookings((previous) =>
+        previous.map((item) =>
+          item.id === String(bookingId)
+            ? { ...item, status: "cancelled" }
+            : item
+        )
+      );
+
+      setReviewBookingId(null);
+
+      setMessage(
+        "Your reservation has been cancelled successfully."
+      );
+    } catch (err) {
+      setError(err.message || "Failed to cancel booking.");
+    } finally {
+      setCancellingId(null);
+    }
   }
 
-  // Submit a review for a completed stay
+  // ==========================================
+  // SUBMIT REVIEW (LOCAL PROTOTYPE)
+  // ==========================================
   function submitReview(data) {
     const booking = bookings.find(
       (item) =>
-        item.id === data.bookingId &&
-        item.userId === user.id &&
-        item.propertyId === data.propertyId
+        item.id === String(data.bookingId) &&
+        item.userId === String(user.id) &&
+        item.propertyId === String(data.propertyId)
     );
 
-    // Reviews are only allowed after checkout
     if (
       !booking ||
       booking.status !== "confirmed" ||
@@ -138,9 +263,9 @@ export default function MyBookings({ user }) {
       return;
     }
 
-    // Prevent duplicate reviews
     const alreadyReviewed = reviews.some(
-      (review) => review.bookingId === booking.id
+      (review) =>
+        String(review.bookingId) === booking.id
     );
 
     if (alreadyReviewed) {
@@ -148,7 +273,6 @@ export default function MyBookings({ user }) {
       return;
     }
 
-    // Validate rating and comment
     if (
       !Number.isInteger(data.rating) ||
       data.rating < 1 ||
@@ -164,7 +288,7 @@ export default function MyBookings({ user }) {
       id: crypto.randomUUID(),
       bookingId: booking.id,
       propertyId: booking.propertyId,
-      userId: user.id,
+      userId: String(user.id),
       userName: user.name,
       rating: data.rating,
       comment: data.comment.trim(),
@@ -180,23 +304,32 @@ export default function MyBookings({ user }) {
 
     setReviews(updatedReviews);
     setReviewBookingId(null);
-    setMessage("Thank you! Your review has been submitted.");
+
+    setMessage(
+      "Review saved locally. Backend review integration is pending."
+    );
   }
 
+  // ==========================================
+  // RENDER
+  // ==========================================
   return (
     <main className="bookings-page">
-      {/* Page Header */}
+
+      {/* PAGE HEADER */}
       <div className="bookings-header">
         <h1>My Bookings</h1>
+
         <p>
           View and manage your vacation rental reservations.
         </p>
       </div>
 
-      {/* Success and Error Messages */}
+      {/* SUCCESS MESSAGE */}
       {message && (
         <div className="booking-notice" role="status">
           <span>{message}</span>
+
           <button
             type="button"
             onClick={() => setMessage("")}
@@ -207,24 +340,49 @@ export default function MyBookings({ user }) {
         </div>
       )}
 
-      {/* Booking Filters */}
+      {/* ERROR MESSAGE */}
+      {error && (
+        <p className="error-message" role="alert">
+          {error}
+        </p>
+      )}
+
+      {/* BOOKING FILTERS */}
       <div className="booking-filters">
-        {["all", "upcoming", "past", "cancelled"].map((option) => (
-          <button
-            type="button"
-            key={option}
-            className={filter === option ? "active" : ""}
-            onClick={() => setFilter(option)}
-          >
-            {option.charAt(0).toUpperCase() + option.slice(1)}
-          </button>
-        ))}
+        {["all", "upcoming", "past", "cancelled"].map(
+          (option) => (
+            <button
+              type="button"
+              key={option}
+              className={
+                filter === option ? "active" : ""
+              }
+              onClick={() => setFilter(option)}
+            >
+              {option.charAt(0).toUpperCase() +
+                option.slice(1)}
+            </button>
+          )
+        )}
       </div>
 
-      {/* Empty Booking State */}
-      {visibleBookings.length === 0 ? (
+      {/* LOADING STATE */}
+      {loading ? (
+        <div className="empty-bookings" role="status">
+          <h2>Loading bookings...</h2>
+          <p>Retrieving your reservations.</p>
+        </div>
+      ) : error && bookings.length === 0 ? (
+        <div className="empty-bookings">
+          <h2>Unable to load bookings</h2>
+          <p>Please check your connection and try again.</p>
+        </div>
+      ) : visibleBookings.length === 0 ? (
+
+        /* EMPTY STATE */
         <div className="empty-bookings">
           <h2>No bookings found</h2>
+
           <p>
             {filter === "all"
               ? "Your reservations will appear here once you book a stay."
@@ -236,24 +394,21 @@ export default function MyBookings({ user }) {
           </Link>
         </div>
       ) : (
+
+        /* BOOKING LIST */
         <div className="booking-list">
           {visibleBookings.map((booking) => {
-            const property = properties.find(
-              (item) => item.id === booking.propertyId
-            );
-
-            // Allow cancellation through check-in day
             const canCancel =
               booking.status === "confirmed" &&
               booking.checkIn >= today;
 
-            // Reviews are available after checkout
             const canReview =
               booking.status === "confirmed" &&
               booking.checkOut <= today;
 
             const existingReview = reviews.find(
-              (review) => review.bookingId === booking.id
+              (review) =>
+                String(review.bookingId) === booking.id
             );
 
             return (
@@ -261,17 +416,19 @@ export default function MyBookings({ user }) {
                 className="booking-card"
                 key={booking.id}
               >
-                {/* Property Image */}
-                {property && (
+
+                {/* PROPERTY IMAGE */}
+                {booking.image && (
                   <img
-                    src={property.image}
-                    alt={property.title}
+                    src={booking.image}
+                    alt={booking.propertyTitle}
                     className="booking-card-image"
                   />
                 )}
 
                 <div className="booking-card-content">
-                  {/* Property Name and Status */}
+
+                  {/* PROPERTY NAME AND STATUS */}
                   <div className="booking-card-top">
                     <h2>{booking.propertyTitle}</h2>
 
@@ -282,26 +439,38 @@ export default function MyBookings({ user }) {
                     </span>
                   </div>
 
-                  {/* Booking Information */}
+                  {/* PROPERTY LOCATION */}
+                  <p>
+                    {booking.city}, {booking.state}
+                  </p>
+
+                  {/* BOOKING DATES */}
                   <p>
                     {formatDate(booking.checkIn)} –{" "}
                     {formatDate(booking.checkOut)}
                   </p>
 
+                  {/* GUEST COUNT AND NIGHTS */}
                   <p>
                     {booking.guests}{" "}
-                    {booking.guests === 1 ? "guest" : "guests"}
+                    {booking.guests === 1
+                      ? "guest"
+                      : "guests"}
                     {" · "}
                     {booking.nights}{" "}
-                    {booking.nights === 1 ? "night" : "nights"}
+                    {booking.nights === 1
+                      ? "night"
+                      : "nights"}
                   </p>
 
+                  {/* TOTAL PRICE */}
                   <p className="booking-total">
-                    Total: ${booking.total.toLocaleString()}
+                    Total: {formatMoney(booking.total)}
                   </p>
 
-                  {/* Booking Actions */}
+                  {/* BOOKING ACTIONS */}
                   <div className="booking-actions">
+
                     <Link
                       to={`/properties/${booking.propertyId}`}
                     >
@@ -312,11 +481,16 @@ export default function MyBookings({ user }) {
                       <button
                         type="button"
                         className="cancel-booking-btn"
+                        disabled={
+                          cancellingId !== null
+                        }
                         onClick={() =>
-                          cancelBooking(booking.id)
+                          handleCancelBooking(booking.id)
                         }
                       >
-                        Cancel booking
+                        {cancellingId === booking.id
+                          ? "Cancelling..."
+                          : "Cancel booking"}
                       </button>
                     )}
 
@@ -332,23 +506,29 @@ export default function MyBookings({ user }) {
                         Write a review
                       </button>
                     )}
+
                   </div>
 
-                  {/* Display Submitted Review */}
+                  {/* EXISTING REVIEW */}
                   {existingReview && (
                     <div className="submitted-review">
                       <strong>Your review</strong>
 
                       <p className="submitted-stars">
                         {"★".repeat(existingReview.rating)}
-                        {"☆".repeat(5 - existingReview.rating)}
+                        {"☆".repeat(
+                          5 - existingReview.rating
+                        )}
                       </p>
 
                       <p>{existingReview.comment}</p>
+                      <small>
+                        Saved locally in this browser
+                      </small>
                     </div>
                   )}
 
-                  {/* Review Submission Form */}
+                  {/* REVIEW FORM */}
                   {reviewBookingId === booking.id &&
                     canReview &&
                     !existingReview && (
@@ -360,6 +540,7 @@ export default function MyBookings({ user }) {
                         }
                       />
                     )}
+
                 </div>
               </article>
             );

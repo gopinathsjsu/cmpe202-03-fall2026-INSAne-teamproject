@@ -1,145 +1,416 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+
 import {
-  getListings,
-  updateListing,
-  deleteListing,
-} from "../services/listings";
+  getPendingProperties,
+  getApprovedProperties,
+  approveProperty,
+  rejectProperty,
+} from "../services/adminProperties";
 
+// ==========================================
+// PRICE FORMATTER
+// ==========================================
+function formatPrice(price) {
+  return Number(price || 0).toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+  });
+}
+
+// ==========================================
+// ADMIN DASHBOARD
+// ==========================================
 export default function AdminDashboard() {
-  const [listings, setListings] = useState([]);
+  const [pendingListings, setPendingListings] =
+    useState([]);
 
-  const loadListings = () => {
-    setListings(getListings());
-  };
+  const [approvedListings, setApprovedListings] =
+    useState([]);
 
-  useEffect(() => {
-    loadListings();
+  const [loading, setLoading] = useState(true);
+  const [processingId, setProcessingId] =
+    useState(null);
+
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  // ==========================================
+  // FETCH LIVE PROPERTY DATA
+  // ==========================================
+  const loadListings = useCallback(async () => {
+    const [pending, approved] = await Promise.all([
+      getPendingProperties(),
+      getApprovedProperties(),
+    ]);
+
+    setPendingListings(pending);
+    setApprovedListings(approved);
   }, []);
 
-  const handleApprove = (listing) => {
-    updateListingStatus(listing, "approved");
-  };
+  useEffect(() => {
+    let active = true;
 
-  const handleReject = (listing) => {
-    updateListingStatus(listing, "rejected");
-  };
+    async function loadInitialData() {
+      setLoading(true);
 
-  const updateListingStatus = (listing, status) => {
-    const allListings = getListings();
+      try {
+        const [pending, approved] = await Promise.all([
+          getPendingProperties(),
+          getApprovedProperties(),
+        ]);
 
-    const updatedListings = allListings.map((item) =>
-      String(item.id) === String(listing.id)
-        ? { ...item, status }
-        : item
+        if (active) {
+          setPendingListings(pending);
+          setApprovedListings(approved);
+          setError("");
+        }
+      } catch (err) {
+        if (active) {
+          setError(
+            err.message || "Failed to load admin dashboard."
+          );
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadInitialData();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // ==========================================
+  // HANDLE APPROVE OR REJECT
+  // ==========================================
+  async function updateListingStatus(listing, status) {
+    if (processingId !== null) return;
+
+    const action =
+      status === "approved" ? "approve" : "reject";
+
+    const confirmed = window.confirm(
+      `Are you sure you want to ${action} "${listing.title}"?`
     );
 
-    localStorage.setItem(
-      "insane_stays_listings",
-      JSON.stringify(updatedListings)
-    );
+    if (!confirmed) return;
 
-    loadListings();
-  };
+    setProcessingId(listing.id);
+    setError("");
+    setMessage("");
 
-  const pendingListings = listings.filter(
-    (listing) => listing.status === "pending"
-  );
+    try {
+      if (status === "approved") {
+        await approveProperty(listing.id);
+      } else {
+        await rejectProperty(listing.id);
+      }
 
-  const approvedListings = listings.filter(
-    (listing) => listing.status === "approved"
-  );
+      // Update the pending list after the
+      // backend confirms the action.
+      setPendingListings((previous) =>
+        previous.filter(
+          (item) =>
+            String(item.id) !== String(listing.id)
+        )
+      );
 
-  const rejectedListings = listings.filter(
-    (listing) => listing.status === "rejected"
-  );
+      setMessage(
+        `"${listing.title}" was ${
+          status === "approved" ? "approved" : "rejected"
+        } successfully.`
+      );
 
+      // Reload actual values from PostgreSQL.
+      try {
+        await loadListings();
+      } catch (refreshError) {
+        setError(
+          `Action succeeded, but refreshing the dashboard failed: ${refreshError.message}`
+        );
+      }
+
+    } catch (err) {
+      setError(
+        err.message || `Failed to ${action} property.`
+      );
+
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  // ==========================================
+  // REFRESH BUTTON
+  // ==========================================
+  async function handleRefresh() {
+    setLoading(true);
+    setError("");
+
+    try {
+      await loadListings();
+    } catch (err) {
+      setError(
+        err.message || "Failed to refresh listings."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ==========================================
+  // AVAILABLE LISTING COUNTS
+  // ==========================================
+  const totalVisible =
+    pendingListings.length +
+    approvedListings.length;
+
+  // ==========================================
+  // RENDER
+  // ==========================================
   return (
     <div className="admin-dashboard">
-      <h1>Admin Dashboard</h1>
-      <p>Manage property listings and approvals.</p>
 
+      <h1>Admin Dashboard</h1>
+
+      <p>
+        Manage property listings and approvals.
+      </p>
+
+      {/* REFRESH BUTTON */}
+      <button
+        type="button"
+        className="primary-btn"
+        onClick={handleRefresh}
+        disabled={loading || processingId !== null}
+        style={{ marginBottom: "20px" }}
+      >
+        {loading ? "Refreshing..." : "Refresh Listings"}
+      </button>
+
+      {/* ERROR MESSAGE */}
+      {error && (
+        <p className="error-message" role="alert">
+          {error}
+        </p>
+      )}
+
+      {/* SUCCESS MESSAGE */}
+      {message && (
+        <p role="status">
+          {message}
+        </p>
+      )}
+
+      {/* ADMIN STATISTICS */}
       <div className="admin-stats">
+
         <div className="admin-stat-card">
-          <h3>Total Listings</h3>
-          <h2>{listings.length}</h2>
+          <h3>Visible Listings</h3>
+          <h2>{loading ? "..." : totalVisible}</h2>
         </div>
 
         <div className="admin-stat-card">
           <h3>Pending Approvals</h3>
-          <h2>{pendingListings.length}</h2>
+          <h2>
+            {loading ? "..." : pendingListings.length}
+          </h2>
         </div>
 
         <div className="admin-stat-card">
           <h3>Approved Listings</h3>
-          <h2>{approvedListings.length}</h2>
+          <h2>
+            {loading ? "..." : approvedListings.length}
+          </h2>
         </div>
 
-        <div className="admin-stat-card">
-          <h3>Rejected Listings</h3>
-          <h2>{rejectedListings.length}</h2>
-        </div>
       </div>
 
+      <p style={{ marginBottom: "24px" }}>
+        Statistics include pending and approved listings.
+        Rejected listings are not included.
+      </p>
+
+      {/* ======================================
+          PENDING APPROVALS
+      ====================================== */}
       <h2>Pending Property Approvals</h2>
 
-      {pendingListings.length === 0 ? (
+      {loading ? (
+        <p>Loading pending properties...</p>
+      ) : pendingListings.length === 0 ? (
         <p>No pending listings.</p>
       ) : (
         <div className="admin-listings">
+
           {pendingListings.map((listing) => (
-            <div className="admin-listing-card" key={listing.id}>
-              {listing.image && (
+            <div
+              className="admin-listing-card"
+              key={listing.id}
+            >
+
+              {/* PROPERTY IMAGE */}
+              {listing.image_url ? (
                 <img
-                  src={listing.image}
+                  src={listing.image_url}
                   alt={listing.title}
                   className="admin-listing-image"
                 />
+              ) : (
+                <div
+                  className="admin-listing-image"
+                  style={{
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    background: "#f3f3f3",
+                    color: "#777",
+                    padding: "20px",
+                  }}
+                >
+                  No property image
+                </div>
               )}
 
               <div className="admin-listing-info">
+
                 <h3>{listing.title}</h3>
+
                 <p>
                   {listing.city}, {listing.state}
                 </p>
-                <p>${listing.price} / night</p>
-                <p>Status: {listing.status}</p>
 
+                <p>
+                  {formatPrice(listing.price_per_night)}
+                  {" / night"}
+                </p>
+
+                <p>
+                  Maximum Guests: {listing.max_guests}
+                </p>
+
+                <p>
+                  Bedrooms: {listing.bedrooms}
+                </p>
+
+                {listing.description && (
+                  <p>{listing.description}</p>
+                )}
+
+                {/* AMENITIES */}
+                {Array.isArray(listing.amenities) &&
+                  listing.amenities.length > 0 && (
+                    <p>
+                      Amenities:{" "}
+                      {listing.amenities.join(", ")}
+                    </p>
+                  )}
+
+                {/* AVAILABILITY */}
+                {listing.available_from &&
+                  listing.available_to && (
+                    <p>
+                      Availability:{" "}
+                      {String(listing.available_from).slice(0, 10)}
+                      {" to "}
+                      {String(listing.available_to).slice(0, 10)}
+                    </p>
+                  )}
+
+                <p>
+                  Status: <strong>{listing.status}</strong>
+                </p>
+
+                {/* ADMIN ACTIONS */}
                 <div className="admin-actions">
+
                   <button
+                    type="button"
                     className="admin-approve-btn"
-                    onClick={() => handleApprove(listing)}
+                    onClick={() =>
+                      updateListingStatus(
+                        listing,
+                        "approved"
+                      )
+                    }
+                    disabled={processingId !== null}
                   >
-                    Approve
+                    {processingId === listing.id
+                      ? "Processing..."
+                      : "Approve"}
                   </button>
 
                   <button
+                    type="button"
                     className="admin-reject-btn"
-                    onClick={() => handleReject(listing)}
+                    onClick={() =>
+                      updateListingStatus(
+                        listing,
+                        "rejected"
+                      )
+                    }
+                    disabled={processingId !== null}
                   >
-                    Reject
+                    {processingId === listing.id
+                      ? "Processing..."
+                      : "Reject"}
                   </button>
+
                 </div>
               </div>
             </div>
           ))}
+
         </div>
       )}
 
-      <h2>All Property Listings</h2>
+      {/* ======================================
+          APPROVED LISTINGS
+      ====================================== */}
+      <h2>Approved Property Listings</h2>
 
-      <div className="admin-listings">
-        {listings.map((listing) => (
-          <div className="admin-listing-card" key={listing.id}>
-            <div className="admin-listing-info">
-              <h3>{listing.title}</h3>
-              <p>
-                {listing.city}, {listing.state}
-              </p>
-              <p>Status: {listing.status}</p>
+      {loading ? (
+        <p>Loading approved properties...</p>
+      ) : approvedListings.length === 0 ? (
+        <p>No approved listings.</p>
+      ) : (
+        <div className="admin-listings">
+
+          {approvedListings.map((listing) => (
+            <div
+              className="admin-listing-card"
+              key={listing.id}
+            >
+
+              <div className="admin-listing-info">
+
+                <h3>{listing.title}</h3>
+
+                <p>
+                  {listing.city}, {listing.state}
+                </p>
+
+                <p>
+                  {formatPrice(listing.price_per_night)}
+                  {" / night"}
+                </p>
+
+                <p>
+                  Status:{" "}
+                  <strong>{listing.status}</strong>
+                </p>
+
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+
+        </div>
+      )}
+
     </div>
   );
 }
