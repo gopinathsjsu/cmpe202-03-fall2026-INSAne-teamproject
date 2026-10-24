@@ -1,84 +1,83 @@
+const API_URL = "http://localhost:5001/api/auth";
 
-const USERS_KEY = "rental_app_users";
 const SESSION_KEY = "rental_app_session";
+const TOKEN_KEY = "rental_app_token";
 
-const demoUsers = [
-  {
-    id: 1,
-    name: "Demo Customer",
-    email: "customer@demo.com",
-    password: "Customer123!",
-    role: "customer",
-  },
-  {
-    id: 2,
-    name: "Demo Host",
-    email: "host@demo.com",
-    password: "Host123!",
-    role: "host",
-  },
-  {
-    id: 3,
-    name: "Demo Admin",
-    email: "admin@demo.com",
-    password: "Admin123!",
-    role: "admin",
-  },
-];
+// ==========================================
+// HELPER: Handle API responses
+// ==========================================
+async function handleResponse(response) {
+  const data = await response.json();
 
-function getUsers() {
-  const stored = localStorage.getItem(USERS_KEY);
-
-  if (stored) {
-    try {
-      return JSON.parse(stored);
-    } catch {
-      localStorage.removeItem(USERS_KEY);
-    }
+  if (!response.ok) {
+    throw new Error(
+      data.message || "Something went wrong."
+    );
   }
 
-  localStorage.setItem(USERS_KEY, JSON.stringify(demoUsers));
-  return demoUsers;
+  return data;
 }
 
-export function registerUser(data) {
-  const users = getUsers();
-
+// ==========================================
+// REGISTER USER
+// ==========================================
+export async function registerUser(data) {
   const email = data.email.trim().toLowerCase();
-
-  if (users.some((user) => user.email === email)) {
-    throw new Error("An account with this email already exists.");
-  }
 
   if (!["customer", "host"].includes(data.role)) {
     throw new Error("Invalid registration role.");
   }
 
-  const newUser = {
-    id: crypto.randomUUID(),
-    name: data.name.trim(),
-    email,
-    password: data.password,
-    role: data.role,
-  };
+  const response = await fetch(
+    `${API_URL}/register`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: data.name.trim(),
+        email,
+        password: data.password,
+        role: data.role,
+      }),
+    }
+  );
 
-  users.push(newUser);
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  await handleResponse(response);
 
+  // Log in after successful registration
   return loginUser(email, data.password);
 }
 
-export function loginUser(email, password) {
-  const users = getUsers();
-
-  const user = users.find(
-    (account) =>
-      account.email === email.trim().toLowerCase() &&
-      account.password === password
+// ==========================================
+// LOGIN USER
+// ==========================================
+export async function loginUser(email, password) {
+  const response = await fetch(
+    `${API_URL}/login`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email: email.trim().toLowerCase(),
+        password,
+      }),
+    }
   );
 
+  const data = await handleResponse(response);
+
+  if (!data.token) {
+    throw new Error("Authentication token missing.");
+  }
+
+  const user = data.user;
+
   if (!user) {
-    throw new Error("Invalid email or password.");
+    throw new Error("User information missing.");
   }
 
   const session = {
@@ -88,18 +87,48 @@ export function loginUser(email, password) {
     role: user.role,
   };
 
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  // Store JWT for protected API requests
+  localStorage.setItem(TOKEN_KEY, data.token);
+
+  // Store user session for React components
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify(session)
+  );
+
   return session;
 }
 
+// ==========================================
+// GET CURRENT USER
+// ==========================================
 export function getCurrentUser() {
   try {
-    return JSON.parse(localStorage.getItem(SESSION_KEY));
+    const token = localStorage.getItem(TOKEN_KEY);
+
+    if (!token) {
+      return null;
+    }
+
+    return JSON.parse(
+      localStorage.getItem(SESSION_KEY)
+    );
   } catch {
     return null;
   }
 }
 
+// ==========================================
+// GET AUTH TOKEN
+// ==========================================
+export function getAuthToken() {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+// ==========================================
+// LOGOUT USER
+// ==========================================
 export function logoutUser() {
   localStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(TOKEN_KEY);
 }
