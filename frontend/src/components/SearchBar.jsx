@@ -8,7 +8,13 @@ export default function SearchBar({ onSearch }) {
   const [guests, setGuests] = useState(1);
   const [error, setError] = useState("");
 
-  const today = new Date().toLocaleDateString("en-CA");
+  // Get today's date in local YYYY-MM-DD format
+  const now = new Date();
+  const today = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
 
   function handleSearch(event) {
     event.preventDefault();
@@ -16,23 +22,30 @@ export default function SearchBar({ onSearch }) {
 
     if (checkIn || checkOut) {
       if (!checkIn || !checkOut) {
-        setError("Please select both check-in and check-out dates.");
+        setError(
+          "Please select both check-in and check-out dates."
+        );
         return;
       }
 
-      const start = Date.parse(checkIn + "T00:00:00Z");
-      const end = Date.parse(checkOut + "T00:00:00Z");
-      const days = (end - start) / 86400000;
-
-      if (days < 1 || days > 14) {
-        setError("Stays must be between 1 and 14 nights.");
-        return;
-      }
+      const start = Date.parse(`${checkIn}T00:00:00Z`);
+      const end = Date.parse(`${checkOut}T00:00:00Z`);
+      const nights = (end - start) / 86400000;
 
       if (checkIn < today) {
         setError("Check-in cannot be in the past.");
         return;
       }
+
+      if (!Number.isFinite(nights) || nights < 1 || nights > 14) {
+        setError("Stays must be between 1 and 14 nights.");
+        return;
+      }
+    }
+
+    if (!Number.isInteger(Number(guests)) || Number(guests) < 1) {
+      setError("Please enter a valid number of guests.");
+      return;
     }
 
     onSearch({
@@ -46,19 +59,22 @@ export default function SearchBar({ onSearch }) {
   return (
     <form className="search-bar" onSubmit={handleSearch}>
       <div className="search-fields">
+
+        {/* Destination */}
         <div className="search-field location-field">
           <label htmlFor="search-location">Where</label>
           <input
             id="search-location"
             type="text"
-            placeholder="Search destinations"
+            placeholder="City, state, or ZIP code"
             value={location}
             onChange={(e) => setLocation(e.target.value)}
           />
         </div>
 
+        {/* Check-in */}
         <div className="search-field">
-          <label htmlFor="check-in">Check in</label>
+          <label htmlFor="check-in">Check-in</label>
           <input
             id="check-in"
             type="date"
@@ -68,8 +84,9 @@ export default function SearchBar({ onSearch }) {
           />
         </div>
 
+        {/* Check-out */}
         <div className="search-field">
-          <label htmlFor="check-out">Check out</label>
+          <label htmlFor="check-out">Check-out</label>
           <input
             id="check-out"
             type="date"
@@ -79,6 +96,7 @@ export default function SearchBar({ onSearch }) {
           />
         </div>
 
+        {/* Guests */}
         <div className="search-field guests-field">
           <label htmlFor="guests">Guests</label>
           <input
@@ -92,12 +110,18 @@ export default function SearchBar({ onSearch }) {
           />
         </div>
 
+        {/* Search button */}
         <button type="submit" className="search-button">
           Search
         </button>
+
       </div>
 
-      {error && <p className="search-error" role="alert">{error}</p>}
+      {error && (
+        <p className="search-error" role="alert">
+          {error}
+        </p>
+      )}
     </form>
   );
 }

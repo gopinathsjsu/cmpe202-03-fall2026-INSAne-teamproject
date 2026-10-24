@@ -1,5 +1,5 @@
-
 import { useState } from "react";
+
 import {
   BrowserRouter,
   Routes,
@@ -7,48 +7,106 @@ import {
   Navigate,
 } from "react-router-dom";
 
+// ==========================================
+// COMPONENTS
+// ==========================================
 import Navbar from "./components/Navbar";
 
+// ==========================================
+// PUBLIC PAGES
+// ==========================================
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-import Dashboard from "./pages/Dashboard";
 import PropertyDetails from "./pages/PropertyDetails";
+
+// ==========================================
+// CUSTOMER PAGES
+// ==========================================
+import Dashboard from "./pages/Dashboard";
 import MyBookings from "./pages/MyBookings";
 
+// ==========================================
+// HOST PAGES
+// ==========================================
 import HostDashboard from "./pages/HostDashboard";
 import AddListing from "./pages/AddListing";
 import EditListing from "./pages/EditListing";
 import HostBookings from "./pages/HostBookings";
 
+// ==========================================
+// ADMIN PAGES
+// ==========================================
 import AdminDashboard from "./pages/AdminDashboard";
 
-import { getCurrentUser } from "./services/auth";
+// ==========================================
+// AUTHENTICATION SERVICES
+// ==========================================
+import {
+  getCurrentUser,
+  logoutUser,
+} from "./services/auth";
 
+// ==========================================
+// HELPER: Determine dashboard by user role
+// ==========================================
 function getDashboardPath(user) {
-  if (user?.role === "host") return "/host";
-  if (user?.role === "admin") return "/admin";
+  if (user?.role === "host") {
+    return "/host";
+  }
+
+  if (user?.role === "admin") {
+    return "/admin";
+  }
+
   return "/dashboard";
 }
 
+// ==========================================
+// MAIN APPLICATION
+// ==========================================
 export default function App() {
+  // Load existing authenticated user
   const [user, setUser] = useState(getCurrentUser);
 
+  // ==========================================
+  // HANDLE LOGIN
+  // ==========================================
   const handleLogin = (loggedInUser) => {
     setUser(loggedInUser);
   };
 
+  // ==========================================
+  // HANDLE LOGOUT
+  // ==========================================
   const handleLogout = () => {
+    // Remove JWT and saved session
+    logoutUser();
+
+    // Clear React authentication state
     setUser(null);
   };
 
   return (
     <BrowserRouter>
-      <Navbar user={user} onLogout={handleLogout} />
+      {/* ======================================
+          NAVIGATION BAR
+      ====================================== */}
+      <Navbar
+        user={user}
+        onLogout={handleLogout}
+      />
 
       <Routes>
-        {/* Public routes */}
-        <Route path="/" element={<Home />} />
+
+        {/* ==================================
+            PUBLIC ROUTES
+        ================================== */}
+
+        <Route
+          path="/"
+          element={<Home />}
+        />
 
         <Route
           path="/login"
@@ -83,7 +141,10 @@ export default function App() {
           element={<PropertyDetails />}
         />
 
-        {/* Customer routes */}
+        {/* ==================================
+            CUSTOMER ROUTES
+        ================================== */}
+
         <Route
           path="/dashboard"
           element={
@@ -95,7 +156,10 @@ export default function App() {
                 replace
               />
             ) : (
-              <Navigate to="/login" replace />
+              <Navigate
+                to="/login"
+                replace
+              />
             )
           }
         />
@@ -107,14 +171,21 @@ export default function App() {
               <MyBookings user={user} />
             ) : (
               <Navigate
-                to={user ? getDashboardPath(user) : "/login"}
+                to={
+                  user
+                    ? getDashboardPath(user)
+                    : "/login"
+                }
                 replace
               />
             )
           }
         />
 
-        {/* Host routes */}
+        {/* ==================================
+            HOST ROUTES
+        ================================== */}
+
         <Route
           path="/host"
           element={
@@ -122,7 +193,11 @@ export default function App() {
               <HostDashboard user={user} />
             ) : (
               <Navigate
-                to={user ? getDashboardPath(user) : "/login"}
+                to={
+                  user
+                    ? getDashboardPath(user)
+                    : "/login"
+                }
                 replace
               />
             )
@@ -136,7 +211,11 @@ export default function App() {
               <AddListing user={user} />
             ) : (
               <Navigate
-                to={user ? getDashboardPath(user) : "/login"}
+                to={
+                  user
+                    ? getDashboardPath(user)
+                    : "/login"
+                }
                 replace
               />
             )
@@ -150,7 +229,11 @@ export default function App() {
               <EditListing user={user} />
             ) : (
               <Navigate
-                to={user ? getDashboardPath(user) : "/login"}
+                to={
+                  user
+                    ? getDashboardPath(user)
+                    : "/login"
+                }
                 replace
               />
             )
@@ -164,14 +247,21 @@ export default function App() {
               <HostBookings user={user} />
             ) : (
               <Navigate
-                to={user ? getDashboardPath(user) : "/login"}
+                to={
+                  user
+                    ? getDashboardPath(user)
+                    : "/login"
+                }
                 replace
               />
             )
           }
         />
 
-        {/* Admin routes */}
+        {/* ==================================
+            ADMIN ROUTES
+        ================================== */}
+
         <Route
           path="/admin"
           element={
@@ -179,18 +269,31 @@ export default function App() {
               <AdminDashboard user={user} />
             ) : (
               <Navigate
-                to={user ? getDashboardPath(user) : "/login"}
+                to={
+                  user
+                    ? getDashboardPath(user)
+                    : "/login"
+                }
                 replace
               />
             )
           }
         />
 
-        {/* Unknown routes */}
+        {/* ==================================
+            UNKNOWN ROUTES
+        ================================== */}
+
         <Route
           path="*"
-          element={<Navigate to="/" replace />}
+          element={
+            <Navigate
+              to="/"
+              replace
+            />
+          }
         />
+
       </Routes>
     </BrowserRouter>
   );

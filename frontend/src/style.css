@@ -1,3 +1,173 @@
+/* ==========================================
+   INSANE STAYS - GLOBAL STYLES
+========================================== */
+
+:root {
+  font-family: Arial, Helvetica, sans-serif;
+  color: #222222;
+  background-color: #ffffff;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #ffffff;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+img {
+  max-width: 100%;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ==========================================
+   SHARED BUTTON STYLES
+========================================== */
+
+.primary-btn {
+  display: inline-block;
+  background: #ff385c;
+  color: #ffffff;
+  border: none;
+  border-radius: 9px;
+  padding: 13px 22px;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.primary-btn:hover {
+  background: #e31c5f;
+}
+
+.primary-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ==========================================
+   SHARED FORM STYLES
+========================================== */
+
+.auth-page {
+  min-height: calc(100vh - 82px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 50px 20px;
+  background: #fff7f8;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 450px;
+  background: white;
+  border: 1px solid #eeeeee;
+  border-radius: 18px;
+  padding: 38px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+}
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.auth-header h1 {
+  font-size: 30px;
+  margin: 0 0 12px;
+}
+
+.auth-header p {
+  color: #717171;
+  font-size: 14px;
+}
+
+.auth-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-card label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.auth-card input,
+.auth-card select {
+  width: 100%;
+  padding: 13px;
+  border: 1px solid #dddddd;
+  border-radius: 9px;
+  background: #ffffff;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.auth-card input:focus,
+.auth-card select:focus {
+  outline: 2px solid #ff385c;
+  border-color: transparent;
+}
+
+.auth-card .primary-btn {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.auth-footer {
+  text-align: center;
+  margin-top: 25px;
+  color: #717171;
+  font-size: 14px;
+}
+
+.auth-footer a {
+  color: #ff385c;
+  font-weight: 700;
+}
+
+.error-message {
+  color: #b42318;
+  background: #fff0f0;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
 
 /* homepage hero */
 .rental-home {
@@ -1482,4 +1652,49 @@
     align-items: flex-start;
     flex-direction: column;
   }
+}
+
+
+/* Homepage layout override */
+.rental-home .hero-section {
+  padding: 65px 7% 55px;
+  text-align: center;
+  background: linear-gradient(135deg, #fff0f3, #ffffff 75%);
+}
+
+.rental-home .search-fields {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.rental-home .listings-section {
+  padding: 55px 7% 80px;
+}
+
+@media (max-width: 600px) {
+  .rental-home .search-fields {
+    display: block;
+  }
+}
+
+
+/* Homepage Clear Search Button */
+
+.reset-button {
+  display: inline-block;
+  margin-top: 18px;
+  padding: 10px 20px;
+  border: 1px solid #ff385c;
+  border-radius: 25px;
+  background: transparent;
+  color: #ff385c;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.reset-button:hover {
+  background: #fff0f3;
 }

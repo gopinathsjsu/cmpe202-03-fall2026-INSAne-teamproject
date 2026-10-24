@@ -3,273 +3,360 @@ import PropertyCard from "../components/PropertyCard";
 import { getAvailableProperties } from "../services/properties";
 
 export default function Home() {
+  // ==========================================
+  // SEARCH STATES
+  // ==========================================
   const [location, setLocation] = useState("");
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
   const [guests, setGuests] = useState(1);
-  const [searchApplied, setSearchApplied] = useState(false);
+
+  const [appliedFilters, setAppliedFilters] = useState(null);
   const [error, setError] = useState("");
 
-  // Get demo properties and approved host listings.
+  // ==========================================
+  // GET AVAILABLE PROPERTIES
+  // ==========================================
   const properties = getAvailableProperties();
 
-  // Get today's date in local time.
+  // ==========================================
+  // HELPER: LOCAL TODAY DATE
+  // ==========================================
   const getToday = () => {
     const today = new Date();
+
     const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, "0");
-    const day = String(today.getDate()).padStart(2, "0");
+    const month = String(
+      today.getMonth() + 1
+    ).padStart(2, "0");
+
+    const day = String(
+      today.getDate()
+    ).padStart(2, "0");
 
     return `${year}-${month}-${day}`;
   };
 
-  // Calculate nights without timezone-related date errors.
+  // ==========================================
+  // HELPER: CALCULATE NIGHTS
+  // ==========================================
   const calculateNights = (start, end) => {
     if (!start || !end) return 0;
 
-    const startDate = Date.parse(`${start}T00:00:00Z`);
-    const endDate = Date.parse(`${end}T00:00:00Z`);
-
-    return Math.round(
-      (endDate - startDate) / (1000 * 60 * 60 * 24)
+    const startDate = Date.parse(
+      `${start}T00:00:00Z`
     );
+
+    const endDate = Date.parse(
+      `${end}T00:00:00Z`
+    );
+
+    return (endDate - startDate) / 86400000;
   };
 
+  // ==========================================
+  // HANDLE SEARCH
+  // ==========================================
   const handleSearch = (event) => {
     event.preventDefault();
     setError("");
 
-    if (checkIn && checkOut) {
-      const nights = calculateNights(checkIn, checkOut);
+    // Validate dates
+    if (checkIn || checkOut) {
+      if (!checkIn || !checkOut) {
+        setError(
+          "Please select both check-in and check-out dates."
+        );
+        return;
+      }
+
+      const nights = calculateNights(
+        checkIn,
+        checkOut
+      );
 
       if (checkIn < getToday()) {
-        setError("Check-in date cannot be in the past.");
+        setError(
+          "Check-in date cannot be in the past."
+        );
         return;
       }
 
-      if (nights <= 0) {
-        setError("Check-out must be after check-in.");
+      if (
+        !Number.isFinite(nights) ||
+        nights < 1 ||
+        nights > 14
+      ) {
+        setError(
+          "Bookings must be between 1 and 14 nights."
+        );
         return;
       }
-
-      if (nights > 14) {
-        setError("Bookings cannot exceed 14 nights.");
-        return;
-      }
-    } else if (checkIn || checkOut) {
-      setError("Please select both check-in and check-out dates.");
-      return;
     }
 
-    if (Number(guests) < 1) {
-      setError("Please select at least one guest.");
-      return;
-    }
-
-    setSearchApplied(true);
-  };
-
-  const handleReset = () => {
-    setLocation("");
-    setCheckIn("");
-    setCheckOut("");
-    setGuests(1);
-    setSearchApplied(false);
-    setError("");
-  };
-
-  // Filter properties using the submitted search criteria.
-  const [appliedFilters, setAppliedFilters] = useState(null);
-
-  const submitSearch = (event) => {
-    event.preventDefault();
-    setError("");
-
-    if (checkIn && checkOut) {
-      const nights = calculateNights(checkIn, checkOut);
-
-      if (checkIn < getToday()) {
-        setError("Check-in date cannot be in the past.");
-        return;
-      }
-
-      if (nights <= 0) {
-        setError("Check-out must be after check-in.");
-        return;
-      }
-
-      if (nights > 14) {
-        setError("Bookings cannot exceed 14 nights.");
-        return;
-      }
-    } else if (checkIn || checkOut) {
-      setError("Please select both check-in and check-out dates.");
-      return;
-    }
-
+    // Validate guest count
     const guestCount = Number(guests);
 
-    if (!Number.isInteger(guestCount) || guestCount < 1) {
-      setError("Please enter a valid number of guests.");
+    if (
+      !Number.isInteger(guestCount) ||
+      guestCount < 1 ||
+      guestCount > 20
+    ) {
+      setError(
+        "Please enter between 1 and 20 guests."
+      );
       return;
     }
 
+    // Apply filters
     setAppliedFilters({
       location: location.trim().toLowerCase(),
-      guests: guestCount,
       checkIn,
       checkOut,
+      guests: guestCount,
     });
-
-    setSearchApplied(true);
   };
 
+  // ==========================================
+  // RESET SEARCH
+  // ==========================================
   const resetSearch = () => {
     setLocation("");
     setCheckIn("");
     setCheckOut("");
     setGuests(1);
     setAppliedFilters(null);
-    setSearchApplied(false);
     setError("");
   };
 
-  const filteredProperties = properties.filter((property) => {
-    if (!searchApplied || !appliedFilters) {
-      return true;
+  // ==========================================
+  // FILTER PROPERTIES
+  // ==========================================
+  const filteredProperties = properties.filter(
+    (property) => {
+      if (!appliedFilters) {
+        return true;
+      }
+
+      const locationText = [
+        property.title,
+        property.city,
+        property.state,
+        property.zipCode,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      const matchesLocation =
+        !appliedFilters.location ||
+        locationText.includes(
+          appliedFilters.location
+        );
+
+      const matchesGuests =
+        Number(property.guests) >=
+        appliedFilters.guests;
+
+      // Date overlap checks will be handled
+      // by the backend booking API.
+      return matchesLocation && matchesGuests;
     }
+  );
 
-    const locationText = [
-      property.title,
-      property.city,
-      property.state,
-      property.zipCode,
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-
-    const matchesLocation =
-      !appliedFilters.location ||
-      locationText.includes(appliedFilters.location);
-
-    const matchesGuests =
-      Number(property.guests) >= appliedFilters.guests;
-
-    // Actual booked-date availability will be checked by the backend.
-    return matchesLocation && matchesGuests;
-  });
-
+  // ==========================================
+  // RENDER HOMEPAGE
+  // ==========================================
   return (
-    <main className="home-page">
-      <section className="hero">
-        <h1>Find your next unforgettable stay</h1>
-        <p>
-          Discover beautiful homes, unique getaways, and places
-          you'll love with Insane Stays.
-        </p>
+    <main className="rental-home">
 
-        <form className="search-bar" onSubmit={submitSearch}>
-          <div className="search-field">
-            <label htmlFor="location">Where</label>
-            <input
-              id="location"
-              type="text"
-              placeholder="City, state, or ZIP code"
-              value={location}
-              onChange={(event) => setLocation(event.target.value)}
-            />
-          </div>
+      {/* =====================================
+          HERO SECTION
+      ===================================== */}
+      <section className="hero-section">
 
-          <div className="search-field">
-            <label htmlFor="checkIn">Check-in</label>
-            <input
-              id="checkIn"
-              type="date"
-              min={getToday()}
-              value={checkIn}
-              onChange={(event) => setCheckIn(event.target.value)}
-            />
-          </div>
-
-          <div className="search-field">
-            <label htmlFor="checkOut">Check-out</label>
-            <input
-              id="checkOut"
-              type="date"
-              min={checkIn || getToday()}
-              value={checkOut}
-              onChange={(event) => setCheckOut(event.target.value)}
-            />
-          </div>
-
-          <div className="search-field">
-            <label htmlFor="guests">Guests</label>
-            <input
-              id="guests"
-              type="number"
-              min="1"
-              value={guests}
-              onChange={(event) => setGuests(event.target.value)}
-            />
-          </div>
-
-          <button type="submit" className="search-button">
-            Search
-          </button>
-        </form>
-
-        {error && (
-          <p role="alert" className="error-message">
-            {error}
-          </p>
-        )}
-
-        {searchApplied && (
-          <button
-            type="button"
-            onClick={resetSearch}
-            className="reset-button"
-          >
-            Clear Search
-          </button>
-        )}
-      </section>
-
-      <section className="properties-section">
-        <div className="section-heading">
-          <h2>
-            {searchApplied
-              ? "Search Results"
-              : "Explore Amazing Stays"}
-          </h2>
+        <div className="hero-content">
+          <h1>
+            Find your next unforgettable stay
+          </h1>
 
           <p>
-            {filteredProperties.length}{" "}
-            {filteredProperties.length === 1
-              ? "property"
-              : "properties"}{" "}
-            available to explore
+            Discover beautiful homes, unique
+            getaways, and places you'll love
+            with Insane Stays.
           </p>
         </div>
 
-        {filteredProperties.length === 0 ? (
-          <div className="no-results">
-            <h3>No properties found</h3>
+        {/* =================================
+            SEARCH BAR
+        ================================= */}
+        <form
+          className="search-bar"
+          onSubmit={handleSearch}
+        >
+          <div className="search-fields">
+
+            {/* LOCATION */}
+            <div className="search-field location-field">
+              <label htmlFor="location">
+                Where
+              </label>
+
+              <input
+                id="location"
+                type="text"
+                placeholder="City, state, or ZIP code"
+                value={location}
+                onChange={(event) =>
+                  setLocation(event.target.value)
+                }
+              />
+            </div>
+
+            {/* CHECK-IN */}
+            <div className="search-field">
+              <label htmlFor="checkIn">
+                Check-in
+              </label>
+
+              <input
+                id="checkIn"
+                type="date"
+                min={getToday()}
+                value={checkIn}
+                onChange={(event) =>
+                  setCheckIn(event.target.value)
+                }
+              />
+            </div>
+
+            {/* CHECK-OUT */}
+            <div className="search-field">
+              <label htmlFor="checkOut">
+                Check-out
+              </label>
+
+              <input
+                id="checkOut"
+                type="date"
+                min={checkIn || getToday()}
+                value={checkOut}
+                onChange={(event) =>
+                  setCheckOut(event.target.value)
+                }
+              />
+            </div>
+
+            {/* GUESTS */}
+            <div className="search-field guests-field">
+              <label htmlFor="guests">
+                Guests
+              </label>
+
+              <input
+                id="guests"
+                type="number"
+                min="1"
+                max="20"
+                value={guests}
+                onChange={(event) =>
+                  setGuests(event.target.value)
+                }
+              />
+            </div>
+
+            {/* SEARCH BUTTON */}
+            <button
+              type="submit"
+              className="search-button"
+            >
+              Search
+            </button>
+
+          </div>
+
+          {error && (
+            <p
+              className="search-error"
+              role="alert"
+            >
+              {error}
+            </p>
+          )}
+
+          {appliedFilters && (
+            <button
+              type="button"
+              onClick={resetSearch}
+              className="reset-button"
+            >
+              Clear Search
+            </button>
+          )}
+
+        </form>
+      </section>
+
+      {/* =====================================
+          PROPERTY LISTINGS
+      ===================================== */}
+      <section className="listings-section">
+
+        <div className="listings-heading">
+          <div>
+            <h2>
+              {appliedFilters
+                ? "Search Results"
+                : "Explore Amazing Stays"}
+            </h2>
+
             <p>
-              Try another location or adjust your guest count.
+              {filteredProperties.length}{" "}
+              {filteredProperties.length === 1
+                ? "property"
+                : "properties"}{" "}
+              available to explore
             </p>
           </div>
+        </div>
+
+        {/* =================================
+            NO RESULTS
+        ================================= */}
+        {filteredProperties.length === 0 ? (
+          <div className="empty-results">
+            <h3>No properties found</h3>
+
+            <p>
+              Try another location or adjust
+              your guest count.
+            </p>
+
+            <button
+              type="button"
+              className="primary-btn"
+              onClick={resetSearch}
+            >
+              Clear Search
+            </button>
+          </div>
         ) : (
+
+          /* ===============================
+              PROPERTY GRID
+          =============================== */
           <div className="property-grid">
-            {filteredProperties.map((property) => (
-              <PropertyCard
-                key={property.id}
-                property={property}
-              />
-            ))}
+            {filteredProperties.map(
+              (property) => (
+                <PropertyCard
+                  key={property.id}
+                  property={property}
+                />
+              )
+            )}
           </div>
         )}
+
       </section>
     </main>
   );
