@@ -8,6 +8,7 @@ const { pool } = require("./config/db");
 const authRoutes = require("./routes/authRoutes");
 const propertyRoutes = require("./routes/propertyRoutes");
 const adminRoutes = require("./routes/adminRoutes");
+const bookingRoutes = require("./routes/bookingRoutes");
 
 // Initialize Express
 const app = express();
@@ -42,6 +43,9 @@ app.use("/api/properties", propertyRoutes);
 
 // Administrator property approval and rejection
 app.use("/api/admin", adminRoutes);
+
+// Booking routes
+app.use("/api/bookings", bookingRoutes);
 
 // ==========================================
 // ROOT ENDPOINT
