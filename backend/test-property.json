@@ -1,0 +1,14 @@
+{
+  "title": "Skylodge Adventure Suites",
+  "description": "Unique mountain accommodation in Peru with panoramic Sacred Valley views.",
+  "city": "Ollantaytambo",
+  "state": "Cusco",
+  "price": 1133,
+  "guests": 2,
+  "bedrooms": 1,
+  "amenities": [
+    "Mountain Views",
+    "Adventure Experience",
+    "Unique Accommodation"
+  ]
+}
