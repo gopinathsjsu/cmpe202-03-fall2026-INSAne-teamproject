@@ -26,7 +26,7 @@ An end-to-end vacation rental booking and management platform (similar to Airbnb
 | Name | GitHub | Component Owned | Areas of Contribution |
 |------|--------|-----------------|----------------------|
 | Alice Dao | [@alicemdao](https://github.com/alicemdao) | | |
-| Suhail Tailor | [@stailor-creator](https://github.com/stailor-creator) | | |
+| Suhail Tailor | [@Sptailor](https://github.com/Sptailor) | External APIs (Google Maps) | Address autocomplete, geocoding, location search by distance, and listing maps |
 | Ishita Prakash | | | working on the frontend & backend|
 | Navaneeth Puklath | [@NavaneethNairP](https://github.com/NavaneethNairP) | | |
 
