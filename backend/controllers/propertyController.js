@@ -1,4 +1,7 @@
 const { pool } = require("../config/db");
+const {
+  queuePropertyLocationUpdate,
+} = require("../services/propertyLocationService");
 
 // ==========================================
 // VALIDATION HELPERS
@@ -298,6 +301,8 @@ const createProperty = async (req, res) => {
       ]
     );
 
+    queuePropertyLocationUpdate(result.rows[0]);
+
     return res.status(201).json({
       message: "Property submitted for approval",
       property: result.rows[0],
@@ -341,9 +346,13 @@ const getMyProperties = async (req, res) => {
 
 // ==========================================
 // PUBLIC PROPERTY COLUMNS
-// Exclude private address and contact info
+// Exclude private address and contact info.
+// Coordinates are rounded to about 1 km so
+// the map shows the area, not the exact home.
 // ==========================================
 const publicColumns = `
+  ROUND(latitude::numeric, 2)::float8 AS latitude,
+  ROUND(longitude::numeric, 2)::float8 AS longitude,
   id,
   host_id,
   title,
@@ -365,11 +374,90 @@ const publicColumns = `
 `;
 
 // ==========================================
+// VALIDATE NEARBY SEARCH QUERY
+// ?lat=37.33&lng=-121.88&radius=25 (miles)
+// ==========================================
+const DEFAULT_RADIUS_MILES = 25;
+const MAX_RADIUS_MILES = 100;
+const MILES_PER_DEGREE_LAT = 69;
+
+const isNumericParam = (value) =>
+  typeof value === "string" &&
+  value.trim() !== "" &&
+  Number.isFinite(Number(value));
+
+function validateNearbyQuery(query) {
+  const { lat, lng, radius } = query || {};
+
+  if (lat === undefined && lng === undefined) {
+    return { values: null };
+  }
+
+  if (!isNumericParam(lat) || !isNumericParam(lng)) {
+    return {
+      error: "lat and lng must both be valid numbers",
+    };
+  }
+
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+
+  if (
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    return {
+      error: "lat must be -90 to 90 and lng -180 to 180",
+    };
+  }
+
+  let radiusMiles = DEFAULT_RADIUS_MILES;
+
+  if (radius !== undefined) {
+    radiusMiles = Number(radius);
+
+    if (
+      !isNumericParam(radius) ||
+      radiusMiles <= 0 ||
+      radiusMiles > MAX_RADIUS_MILES
+    ) {
+      return {
+        error: `radius must be greater than 0 and at most ${MAX_RADIUS_MILES} miles`,
+      };
+    }
+  }
+
+  return {
+    values: { latitude, longitude, radiusMiles },
+  };
+}
+
+// ==========================================
 // GET /api/properties
 // PUBLIC: APPROVED PROPERTIES
+// Optional ?lat&lng&radius returns only
+// properties within radius miles, nearest first.
 // ==========================================
 const getApprovedProperties = async (req, res) => {
   try {
+    const nearby = validateNearbyQuery(req.query);
+
+    if (nearby.error) {
+      return res.status(400).json({
+        message: nearby.error,
+      });
+    }
+
+    if (nearby.values) {
+      return res.status(200).json({
+        properties: await findNearbyProperties(
+          nearby.values
+        ),
+      });
+    }
+
     const result = await pool.query(
       `SELECT ${publicColumns}
        FROM properties
@@ -389,6 +477,66 @@ const getApprovedProperties = async (req, res) => {
     });
   }
 };
+
+// ==========================================
+// FIND NEARBY APPROVED PROPERTIES
+// Distance is measured from the rounded public
+// coordinates so it cannot reveal the exact home.
+// ==========================================
+async function findNearbyProperties({
+  latitude,
+  longitude,
+  radiusMiles,
+}) {
+  // Bounding box prefilter, padded to cover
+  // the rounding of public coordinates.
+  const padding = 0.01;
+  const latDelta =
+    radiusMiles / MILES_PER_DEGREE_LAT + padding;
+  const lngDelta =
+    radiusMiles /
+      (MILES_PER_DEGREE_LAT *
+        Math.max(
+          Math.cos((latitude * Math.PI) / 180),
+          0.01
+        )) +
+    padding;
+
+  const result = await pool.query(
+    `SELECT *
+     FROM (
+       SELECT
+         public_properties.*,
+         ROUND((
+           3958.8 * 2 * ASIN(LEAST(1, SQRT(
+             POWER(SIN(RADIANS(latitude - $1) / 2), 2) +
+             COS(RADIANS($1)) * COS(RADIANS(latitude)) *
+             POWER(SIN(RADIANS(longitude - $2) / 2), 2)
+           )))
+         )::numeric, 1)::float8 AS distance_miles
+       FROM (
+         SELECT ${publicColumns}
+         FROM properties
+         WHERE status = 'approved'
+           AND latitude BETWEEN $4 AND $5
+           AND longitude BETWEEN $6 AND $7
+       ) AS public_properties
+     ) AS distances
+     WHERE distance_miles <= $3
+     ORDER BY distance_miles, created_at DESC, id DESC`,
+    [
+      latitude,
+      longitude,
+      radiusMiles,
+      latitude - latDelta,
+      latitude + latDelta,
+      longitude - lngDelta,
+      longitude + lngDelta,
+    ]
+  );
+
+  return result.rows;
+}
 
 // ==========================================
 // GET /api/properties/:id
@@ -488,9 +636,9 @@ const updateProperty = async (req, res) => {
        SET
          title = $1,
          description = $2,
-         city = $3,
-         state = $4,
-         zip_code = $5,
+         city = $3::text,
+         state = $4::text,
+         zip_code = $5::text,
          price_per_night = $6,
          max_guests = $7,
          bedrooms = $8,
@@ -502,6 +650,23 @@ const updateProperty = async (req, res) => {
          available_to = COALESCE($14, available_to),
          check_in_time = COALESCE($15, check_in_time),
          check_out_time = COALESCE($16, check_out_time),
+         -- Clear stale coordinates when the location changes.
+         latitude = CASE
+           WHEN address IS DISTINCT FROM COALESCE($11, address)
+             OR city IS DISTINCT FROM $3::text
+             OR state IS DISTINCT FROM $4::text
+             OR zip_code IS DISTINCT FROM $5::text
+           THEN NULL
+           ELSE latitude
+         END,
+         longitude = CASE
+           WHEN address IS DISTINCT FROM COALESCE($11, address)
+             OR city IS DISTINCT FROM $3::text
+             OR state IS DISTINCT FROM $4::text
+             OR zip_code IS DISTINCT FROM $5::text
+           THEN NULL
+           ELSE longitude
+         END,
          status = 'pending'
        WHERE id = $17
          AND host_id = $18
@@ -532,6 +697,10 @@ const updateProperty = async (req, res) => {
       return res.status(404).json({
         message: "Property not found or access denied",
       });
+    }
+
+    if (result.rows[0].latitude === null) {
+      queuePropertyLocationUpdate(result.rows[0]);
     }
 
     return res.status(200).json({

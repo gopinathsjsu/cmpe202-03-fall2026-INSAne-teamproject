@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
+import AddressAutocomplete from "../components/AddressAutocomplete";
 import PropertyCard from "../components/PropertyCard";
+import PropertyMap from "../components/PropertyMap";
 import { getBackendProperties } from "../services/backendProperties";
+
+const RADIUS_OPTIONS_MILES = [5, 10, 25, 50, 100];
+const DEFAULT_RADIUS_MILES = 25;
 
 // ==========================================
 // HELPER: GET TODAY'S DATE
@@ -51,6 +57,24 @@ export default function Home() {
   const [error, setError] = useState("");
 
   // ==========================================
+  // GOOGLE ADDRESS SEARCH STATES
+  // ==========================================
+  const navigate = useNavigate();
+
+  // Set when a Google suggestion is chosen;
+  // cleared when the location text is edited.
+  const [selectedPlace, setSelectedPlace] = useState(null);
+  const [radiusMiles, setRadiusMiles] = useState(
+    DEFAULT_RADIUS_MILES
+  );
+
+  const [nearbyProperties, setNearbyProperties] = useState([]);
+  const [nearbyLoading, setNearbyLoading] = useState(false);
+  const [nearbyError, setNearbyError] = useState("");
+
+  const searchPlace = appliedFilters?.place || null;
+
+  // ==========================================
   // LOAD APPROVED PROPERTIES FROM POSTGRESQL
   // ==========================================
   useEffect(() => {
@@ -85,6 +109,81 @@ export default function Home() {
       active = false;
     };
   }, []);
+
+  // ==========================================
+  // LOAD NEARBY PROPERTIES FOR ADDRESS SEARCH
+  // ==========================================
+  const searchLatitude = searchPlace?.latitude;
+  const searchLongitude = searchPlace?.longitude;
+
+  useEffect(() => {
+    if (
+      searchLatitude === undefined ||
+      searchLongitude === undefined
+    ) {
+      return;
+    }
+
+    let active = true;
+
+    async function loadNearbyProperties() {
+      setNearbyLoading(true);
+      setNearbyError("");
+
+      try {
+        const data = await getBackendProperties({
+          latitude: searchLatitude,
+          longitude: searchLongitude,
+          radiusMiles,
+        });
+
+        if (active) {
+          setNearbyProperties(data);
+        }
+      } catch (err) {
+        if (active) {
+          setNearbyError(
+            err.message || "Failed to search nearby properties."
+          );
+        }
+      } finally {
+        if (active) {
+          setNearbyLoading(false);
+        }
+      }
+    }
+
+    loadNearbyProperties();
+
+    return () => {
+      active = false;
+    };
+  }, [searchLatitude, searchLongitude, radiusMiles]);
+
+  // ==========================================
+  // HANDLE LOCATION INPUT
+  // ==========================================
+  function handleLocationChange(event) {
+    setLocation(event.target.value);
+
+    // Typing replaces the chosen address.
+    setSelectedPlace(null);
+  }
+
+  function handlePlaceSelect(place) {
+    setLocation(place.formattedAddress);
+
+    if (
+      Number.isFinite(place.latitude) &&
+      Number.isFinite(place.longitude)
+    ) {
+      setSelectedPlace({
+        label: place.formattedAddress,
+        latitude: place.latitude,
+        longitude: place.longitude,
+      });
+    }
+  }
 
   // ==========================================
   // HANDLE SEARCH
@@ -132,7 +231,12 @@ export default function Home() {
     }
 
     setAppliedFilters({
-      location: location.trim().toLowerCase(),
+      // A chosen Google address searches by
+      // distance instead of matching text.
+      location: selectedPlace
+        ? ""
+        : location.trim().toLowerCase(),
+      place: selectedPlace,
       checkIn,
       checkOut,
       guests: guestCount,
@@ -149,12 +253,23 @@ export default function Home() {
     setGuests(1);
     setAppliedFilters(null);
     setError("");
+    setSelectedPlace(null);
+    setNearbyProperties([]);
+    setNearbyError("");
   }
 
   // ==========================================
   // FILTER PROPERTIES
   // ==========================================
-  const filteredProperties = properties.filter((property) => {
+  const sourceProperties = searchPlace
+    ? nearbyProperties
+    : properties;
+
+  const isLoading = loading || (searchPlace && nearbyLoading);
+  const currentError =
+    loadError || (searchPlace ? nearbyError : "");
+
+  const filteredProperties = sourceProperties.filter((property) => {
     if (!appliedFilters) {
       return true;
     }
@@ -215,14 +330,13 @@ export default function Home() {
                 Where
               </label>
 
-              <input
+              <AddressAutocomplete
                 id="location"
                 type="text"
-                placeholder="City, state, or ZIP code"
+                placeholder="Address, city, state, or ZIP code"
                 value={location}
-                onChange={(event) =>
-                  setLocation(event.target.value)
-                }
+                onChange={handleLocationChange}
+                onPlaceSelect={handlePlaceSelect}
               />
             </div>
 
@@ -326,12 +440,32 @@ export default function Home() {
                 : "Explore Amazing Stays"}
             </h2>
 
-            <p>
-              Browse verified, approved property listings.
-            </p>
+            {searchPlace ? (
+              <p className="nearby-search-summary">
+                <label htmlFor="radius">Within</label>{" "}
+                <select
+                  id="radius"
+                  value={radiusMiles}
+                  onChange={(event) =>
+                    setRadiusMiles(Number(event.target.value))
+                  }
+                >
+                  {RADIUS_OPTIONS_MILES.map((miles) => (
+                    <option key={miles} value={miles}>
+                      {miles} miles
+                    </option>
+                  ))}
+                </select>{" "}
+                of {searchPlace.label}
+              </p>
+            ) : (
+              <p>
+                Browse verified, approved property listings.
+              </p>
+            )}
           </div>
 
-          {!loading && !loadError && (
+          {!isLoading && !currentError && (
             <span className="listing-count">
               {filteredProperties.length}{" "}
               {filteredProperties.length === 1
@@ -342,17 +476,17 @@ export default function Home() {
         </div>
 
         {/* LOADING STATE */}
-        {loading ? (
+        {isLoading ? (
           <div className="empty-results">
             <h3>Loading properties...</h3>
             <p>Finding stays for your next trip.</p>
           </div>
-        ) : loadError ? (
+        ) : currentError ? (
 
           /* ERROR STATE */
           <div className="empty-results">
             <h3>Unable to load properties</h3>
-            <p role="alert">{loadError}</p>
+            <p role="alert">{currentError}</p>
             <p>
               Please make sure the backend is running
               on port 5001.
@@ -365,7 +499,9 @@ export default function Home() {
             <h3>No properties found</h3>
 
             <p>
-              {appliedFilters
+              {searchPlace
+                ? "Try a larger distance, another address, or adjust your guest count."
+                : appliedFilters
                 ? "Try another location or adjust your guest count."
                 : "No approved properties are available yet."}
             </p>
@@ -382,15 +518,25 @@ export default function Home() {
           </div>
         ) : (
 
-          /* REAL PROPERTY GRID */
-          <div className="property-grid">
-            {filteredProperties.map((property) => (
-              <PropertyCard
-                key={property.id}
-                property={property}
-              />
-            ))}
-          </div>
+          <>
+            {/* RESULTS MAP */}
+            <PropertyMap
+              properties={filteredProperties}
+              onSelect={(property) =>
+                navigate(`/properties/${property.id}`)
+              }
+            />
+
+            {/* REAL PROPERTY GRID */}
+            <div className="property-grid">
+              {filteredProperties.map((property) => (
+                <PropertyCard
+                  key={property.id}
+                  property={property}
+                />
+              ))}
+            </div>
+          </>
         )}
       </section>
     </main>

@@ -5,6 +5,7 @@ import {
   Link,
 } from "react-router-dom";
 
+import AddressAutocomplete from "../components/AddressAutocomplete";
 import {
   getMyHostProperties,
   updateHostProperty,
@@ -203,6 +204,19 @@ export default function EditListing({ user }) {
     setForm((previous) => ({
       ...previous,
       [name]: value,
+    }));
+  }
+
+  // ==========================================
+  // FILL LOCATION FROM A GOOGLE SUGGESTION
+  // ==========================================
+  function handleAddressSelect(place) {
+    setForm((previous) => ({
+      ...previous,
+      address: place.streetAddress || place.formattedAddress,
+      city: place.city || previous.city,
+      state: place.state || previous.state,
+      zipCode: place.zipCode || previous.zipCode,
     }));
   }
 
@@ -481,12 +495,13 @@ export default function EditListing({ user }) {
           Street Address
         </label>
 
-        <input
+        <AddressAutocomplete
           id="edit-address"
           name="address"
           type="text"
           value={form.address}
           onChange={handleChange}
+          onPlaceSelect={handleAddressSelect}
           disabled={saving}
         />
 

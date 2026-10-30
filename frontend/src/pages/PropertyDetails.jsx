@@ -4,6 +4,11 @@ import { useNavigate, useParams } from "react-router-dom";
 import { getCurrentUser } from "../services/auth";
 import { getBackendPropertyById } from "../services/backendProperties";
 import { createBooking } from "../services/bookings";
+import {
+  getPropertyPosition,
+  isGoogleMapsEnabled,
+} from "../services/googleMaps";
+import PropertyMap from "../components/PropertyMap";
 
 // ==========================================
 // HELPER: GET TODAY'S DATE
@@ -392,6 +397,24 @@ export default function PropertyDetails() {
           ) : (
             <p>No amenities listed.</p>
           )}
+
+          {/* APPROXIMATE LOCATION MAP */}
+          {isGoogleMapsEnabled() &&
+            getPropertyPosition(property) && (
+              <>
+                <h2>Where You'll Be</h2>
+
+                <PropertyMap
+                  properties={[property]}
+                  approximate
+                  className="property-map property-map-small"
+                />
+
+                <p className="map-note">
+                  The map shows the approximate area.
+                </p>
+              </>
+            )}
 
         </div>
 

@@ -39,13 +39,22 @@ export async function getBackendPropertyById(id) {
 
 // ==========================================
 // GET ALL APPROVED PROPERTIES
-// For upcoming homepage integration
+// Pass { latitude, longitude, radiusMiles }
+// to get only nearby properties, nearest first.
 // ==========================================
-export async function getBackendProperties() {
+export async function getBackendProperties(nearby) {
   let response;
 
+  const url = nearby
+    ? `${API_URL}?${new URLSearchParams({
+        lat: String(nearby.latitude),
+        lng: String(nearby.longitude),
+        radius: String(nearby.radiusMiles),
+      })}`
+    : API_URL;
+
   try {
-    response = await fetch(API_URL);
+    response = await fetch(url);
   } catch {
     throw new Error("Failed to connect to the backend.");
   }

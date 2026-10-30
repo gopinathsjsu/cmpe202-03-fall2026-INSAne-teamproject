@@ -93,6 +93,13 @@ export default function PropertyCard({ property }) {
           {property.title}
         </p>
 
+        {/* DISTANCE FROM ADDRESS SEARCH */}
+        {Number.isFinite(property.distance_miles) && (
+          <p className="property-distance">
+            About {property.distance_miles} mi away
+          </p>
+        )}
+
         {/* GUESTS AND BEDROOMS */}
         <p className="property-info">
           {maxGuests}{" "}
