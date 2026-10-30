@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { createHostProperty } from "../services/hostProperties";
+import AddressAutocomplete from "../components/AddressAutocomplete";
 
 // ==========================================
 // INITIAL FORM DATA
@@ -72,6 +73,19 @@ export default function AddListing({ user }) {
     setForm((previous) => ({
       ...previous,
       [name]: value,
+    }));
+  }
+
+  // ==========================================
+  // FILL LOCATION FROM A GOOGLE SUGGESTION
+  // ==========================================
+  function handleAddressSelect(place) {
+    setForm((previous) => ({
+      ...previous,
+      address: place.streetAddress || place.formattedAddress,
+      city: place.city || previous.city,
+      state: place.state || previous.state,
+      zipCode: place.zipCode || previous.zipCode,
     }));
   }
 
@@ -279,11 +293,12 @@ export default function AddListing({ user }) {
           Street Address
         </label>
 
-        <input
+        <AddressAutocomplete
           id="address"
           name="address"
           value={form.address}
           onChange={handleChange}
+          onPlaceSelect={handleAddressSelect}
           disabled={loading}
           required
         />

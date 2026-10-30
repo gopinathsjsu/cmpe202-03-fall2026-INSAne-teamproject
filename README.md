@@ -108,7 +108,7 @@ All APIs accept and return **JSON**, with input validation and error handling. A
 | Frontend | React.js | |
 | Backend | Node.js | |
 | Database | PostgreSQL | |
-| External APIs | Google Maps JavaScript & Geocoding API | |
+| External APIs | Google Maps JavaScript, Geocoding & Places API ([setup](docs/google-maps-setup.md)) | |
 | Cloud Hosting | AWS (for now) — Auto Scaling EC2 cluster behind a Load Balancer | |
 | CI/CD | GitHub Actions | |
 | Testing | _TODO_ | |
