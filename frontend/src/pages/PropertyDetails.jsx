@@ -4,6 +4,9 @@ import { useNavigate, useParams } from "react-router-dom";
 import { getCurrentUser } from "../services/auth";
 import { getBackendPropertyById } from "../services/backendProperties";
 import { createBooking } from "../services/bookings";
+import { getPropertyReviews } from "../services/reviews";
+
+// Google Maps integration - teammate's feature
 import {
   getPropertyPosition,
   isGoogleMapsEnabled,
@@ -50,6 +53,25 @@ function formatPrice(value) {
 }
 
 // ==========================================
+// HELPER: FORMAT REVIEW DATE
+// ==========================================
+function formatReviewDate(value) {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return date.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+// ==========================================
 // HELPER: NORMALIZE AMENITIES
 // ==========================================
 function getAmenities(amenities) {
@@ -74,6 +96,33 @@ function getAmenities(amenities) {
 }
 
 // ==========================================
+// COMPONENT: RATING STARS
+// ==========================================
+function RatingStars({ rating, size = "20px" }) {
+  const numericRating = Math.max(
+    0,
+    Math.min(5, Number(rating) || 0)
+  );
+
+  const filledStars = Math.round(numericRating);
+
+  return (
+    <span
+      aria-label={`${numericRating} out of 5 stars`}
+      title={`${numericRating} out of 5 stars`}
+      style={{
+        color: "#e3a128",
+        fontSize: size,
+        letterSpacing: "2px",
+      }}
+    >
+      {"★".repeat(filledStars)}
+      {"☆".repeat(5 - filledStars)}
+    </span>
+  );
+}
+
+// ==========================================
 // PROPERTY DETAILS PAGE
 // ==========================================
 export default function PropertyDetails() {
@@ -82,9 +131,16 @@ export default function PropertyDetails() {
 
   const user = getCurrentUser();
 
+  // ==========================================
+  // PROPERTY STATE
+  // ==========================================
   const [property, setProperty] = useState(null);
-
   const [loading, setLoading] = useState(true);
+  const [propertyError, setPropertyError] = useState("");
+
+  // ==========================================
+  // BOOKING STATE
+  // ==========================================
   const [bookingLoading, setBookingLoading] = useState(false);
 
   const [checkIn, setCheckIn] = useState("");
@@ -93,7 +149,16 @@ export default function PropertyDetails() {
 
   const [availability, setAvailability] = useState(null);
   const [error, setError] = useState("");
-  const [propertyError, setPropertyError] = useState("");
+
+  // ==========================================
+  // REVIEW STATE
+  // ==========================================
+  const [reviews, setReviews] = useState([]);
+  const [averageRating, setAverageRating] = useState(0);
+  const [totalReviews, setTotalReviews] = useState(0);
+
+  const [reviewsLoading, setReviewsLoading] = useState(true);
+  const [reviewsError, setReviewsError] = useState("");
 
   // ==========================================
   // LOAD PROPERTY FROM POSTGRESQL
@@ -105,9 +170,11 @@ export default function PropertyDetails() {
       setLoading(true);
       setPropertyError("");
       setProperty(null);
+
       setCheckIn("");
       setCheckOut("");
       setGuests(1);
+
       setAvailability(null);
       setError("");
 
@@ -131,6 +198,56 @@ export default function PropertyDetails() {
     }
 
     loadProperty();
+
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
+  // ==========================================
+  // LOAD PROPERTY REVIEWS FROM POSTGRESQL
+  // ==========================================
+  useEffect(() => {
+    let active = true;
+
+    async function loadReviews() {
+      setReviewsLoading(true);
+      setReviewsError("");
+
+      setReviews([]);
+      setAverageRating(0);
+      setTotalReviews(0);
+
+      try {
+        const data = await getPropertyReviews(id);
+
+        if (!active) return;
+
+        setReviews(
+          Array.isArray(data.reviews) ? data.reviews : []
+        );
+
+        setAverageRating(
+          Number(data.averageRating) || 0
+        );
+
+        setTotalReviews(
+          Number(data.totalReviews) || 0
+        );
+      } catch (err) {
+        if (active) {
+          setReviewsError(
+            err.message || "Unable to load guest reviews."
+          );
+        }
+      } finally {
+        if (active) {
+          setReviewsLoading(false);
+        }
+      }
+    }
+
+    loadReviews();
 
     return () => {
       active = false;
@@ -191,7 +308,6 @@ export default function PropertyDetails() {
   const total = validNights ? nights * price : 0;
 
   const amenities = getAmenities(property.amenities);
-
   const image = property.image_url;
 
   // ==========================================
@@ -224,9 +340,10 @@ export default function PropertyDetails() {
   }
 
   // ==========================================
-  // CHECK INPUTS
-  // Actual availability is enforced by
-  // PostgreSQL when the booking is created.
+  // VALIDATE BOOKING INPUTS
+  // ==========================================
+  // PostgreSQL validates actual booking availability
+  // when the reservation is submitted.
   // ==========================================
   function handleCheckAvailability() {
     setError("");
@@ -244,21 +361,22 @@ export default function PropertyDetails() {
     setAvailability({
       available: null,
       message:
-        "Your dates and guest count are valid. Actual availability will be confirmed when you reserve.",
+        "Your dates and guest count are valid. " +
+        "Actual availability will be confirmed when you reserve.",
     });
   }
 
   // ==========================================
-  // CREATE BOOKING IN POSTGRESQL
+  // CREATE BOOKING THROUGH EXPRESS API
   // ==========================================
   async function handleBooking(event) {
     event.preventDefault();
+
     setError("");
     setAvailability(null);
 
     if (bookingLoading) return;
 
-    // Require customer authentication
     if (!user) {
       navigate("/login");
       return;
@@ -269,7 +387,6 @@ export default function PropertyDetails() {
       return;
     }
 
-    // Validate reservation details
     const validationError = validateBooking();
 
     if (validationError) {
@@ -280,8 +397,6 @@ export default function PropertyDetails() {
     setBookingLoading(true);
 
     try {
-      // Create booking through Express API
-      // PostgreSQL prevents overlapping stays.
       await createBooking({
         propertyId: property.id,
         checkIn,
@@ -289,11 +404,8 @@ export default function PropertyDetails() {
         guests: Number(guests),
       });
 
-      // Booking was saved successfully
       navigate("/my-bookings");
-
     } catch (err) {
-      // Includes 409 Conflict for booked dates
       setError(
         err.message || "Failed to create reservation."
       );
@@ -302,10 +414,15 @@ export default function PropertyDetails() {
     }
   }
 
+  // ==========================================
+  // RENDER PAGE
+  // ==========================================
   return (
     <main className="property-details-page">
 
-      {/* BACK BUTTON */}
+      {/* ======================================
+          BACK BUTTON
+      ====================================== */}
       <button
         type="button"
         onClick={() => navigate("/")}
@@ -314,7 +431,9 @@ export default function PropertyDetails() {
         ← Back to Properties
       </button>
 
-      {/* PROPERTY TITLE */}
+      {/* ======================================
+          PROPERTY TITLE
+      ====================================== */}
       <h1>{property.title}</h1>
 
       {/* PROPERTY LOCATION */}
@@ -324,6 +443,35 @@ export default function PropertyDetails() {
           ? ` ${property.zip_code}`
           : ""}
       </p>
+
+      {/* ======================================
+          PROPERTY RATING SUMMARY
+      ====================================== */}
+      {!reviewsLoading &&
+        !reviewsError &&
+        totalReviews > 0 && (
+          <div
+            className="property-rating-summary"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "10px",
+              marginBottom: "20px",
+            }}
+          >
+            <RatingStars rating={averageRating} />
+
+            <strong>
+              {averageRating.toFixed(1)}
+            </strong>
+
+            <span>
+              ({totalReviews}{" "}
+              {totalReviews === 1 ? "review" : "reviews"})
+            </span>
+          </div>
+        )}
 
       <div className="property-details-layout">
 
@@ -356,7 +504,9 @@ export default function PropertyDetails() {
             </div>
           )}
 
-          {/* DESCRIPTION */}
+          {/* ==================================
+              PROPERTY DESCRIPTION
+          ================================== */}
           <h2>About This Property</h2>
 
           <p>
@@ -364,26 +514,25 @@ export default function PropertyDetails() {
               `Enjoy your stay at ${property.title}, located in ${property.city}, ${property.state}.`}
           </p>
 
-          {/* PROPERTY DETAILS */}
+          {/* PROPERTY CAPACITY */}
           <div className="property-details-info">
-
             <p>
               <strong>Guests:</strong> Up to {maxGuests}
             </p>
 
             <p>
               <strong>Bedrooms:</strong>{" "}
-              {property.bedrooms || 1}
+              {property.bedrooms ?? 1}
             </p>
-
           </div>
 
-          {/* AMENITIES */}
+          {/* ==================================
+              AMENITIES
+          ================================== */}
           <h2>Amenities</h2>
 
           {amenities.length > 0 ? (
             <div className="property-amenities">
-
               {amenities.map((amenity, index) => (
                 <span
                   key={index}
@@ -392,13 +541,15 @@ export default function PropertyDetails() {
                   {String(amenity)}
                 </span>
               ))}
-
             </div>
           ) : (
             <p>No amenities listed.</p>
           )}
 
-          {/* APPROXIMATE LOCATION MAP */}
+          {/* ==================================
+              GOOGLE MAPS INTEGRATION
+              TEAMMATE'S EXISTING FEATURE
+          ================================== */}
           {isGoogleMapsEnabled() &&
             getPropertyPosition(property) && (
               <>
@@ -416,13 +567,165 @@ export default function PropertyDetails() {
               </>
             )}
 
+          {/* ==================================
+              GUEST REVIEWS AND RATINGS
+              POSTGRESQL INTEGRATION
+          ================================== */}
+          <section
+            className="property-reviews-section"
+            aria-labelledby="guest-reviews-title"
+            style={{ marginTop: "32px" }}
+          >
+            <h2 id="guest-reviews-title">
+              Guest Reviews
+            </h2>
+
+            {reviewsLoading ? (
+              <p role="status">
+                Loading reviews...
+              </p>
+            ) : reviewsError ? (
+              <p
+                role="alert"
+                className="error-message"
+              >
+                {reviewsError}
+              </p>
+            ) : totalReviews === 0 ? (
+              <div
+                className="empty-reviews"
+                style={{
+                  padding: "18px",
+                  border: "1px solid #ddd",
+                  borderRadius: "12px",
+                }}
+              >
+                <p>No reviews yet.</p>
+
+                <p>
+                  Be the first guest to review this
+                  property after completing a stay.
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* AVERAGE RATING */}
+                <div
+                  className="reviews-overview"
+                  style={{
+                    padding: "16px",
+                    border: "1px solid #ddd",
+                    borderRadius: "12px",
+                    marginBottom: "20px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      gap: "10px",
+                    }}
+                  >
+                    <RatingStars
+                      rating={averageRating}
+                      size="26px"
+                    />
+
+                    <strong
+                      style={{ fontSize: "24px" }}
+                    >
+                      {averageRating.toFixed(1)} / 5
+                    </strong>
+                  </div>
+
+                  <p>
+                    Based on {totalReviews}{" "}
+                    {totalReviews === 1
+                      ? "guest review"
+                      : "guest reviews"}
+                  </p>
+                </div>
+
+                {/* INDIVIDUAL REVIEWS */}
+                <div
+                  className="reviews-list"
+                  style={{
+                    display: "grid",
+                    gap: "16px",
+                  }}
+                >
+                  {reviews.map((review) => (
+                    <article
+                      key={review.id}
+                      className="guest-review-card"
+                      style={{
+                        border: "1px solid #ddd",
+                        borderRadius: "12px",
+                        padding: "18px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent:
+                            "space-between",
+                          alignItems: "flex-start",
+                          flexWrap: "wrap",
+                          gap: "10px",
+                        }}
+                      >
+                        <div>
+                          <strong>
+                            {review.customer_name ||
+                              "Guest"}
+                          </strong>
+
+                          <p
+                            style={{
+                              margin: "6px 0",
+                            }}
+                          >
+                            <RatingStars
+                              rating={review.rating}
+                            />
+                          </p>
+                        </div>
+
+                        <small>
+                          {formatReviewDate(
+                            review.created_at
+                          )}
+                        </small>
+                      </div>
+
+                      <p
+                        style={{
+                          marginTop: "12px",
+                          whiteSpace: "pre-wrap",
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        {review.comment}
+                      </p>
+
+                      <small
+                        style={{ color: "#666" }}
+                      >
+                        Review from a completed booking
+                      </small>
+                    </article>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
         </div>
 
         {/* ==================================
             BOOKING SECTION
         ================================== */}
         <div className="property-booking-section">
-
           <div className="property-booking-card">
 
             {/* PRICE PER NIGHT */}
@@ -433,9 +736,10 @@ export default function PropertyDetails() {
 
             <form onSubmit={handleBooking}>
 
-              {/* DATES */}
+              {/* ==================================
+                  CHECK-IN / CHECK-OUT
+              ================================== */}
               <div className="booking-date-fields">
-
                 <div>
                   <label htmlFor="checkIn">
                     Check-in
@@ -475,12 +779,12 @@ export default function PropertyDetails() {
                     required
                   />
                 </div>
-
               </div>
 
-              {/* GUEST SELECTION */}
+              {/* ==================================
+                  NUMBER OF GUESTS
+              ================================== */}
               <div className="booking-guests-field">
-
                 <label htmlFor="guests">
                   Guests
                 </label>
@@ -489,13 +793,14 @@ export default function PropertyDetails() {
                   id="guests"
                   value={guests}
                   onChange={(event) => {
-                    setGuests(Number(event.target.value));
+                    setGuests(
+                      Number(event.target.value)
+                    );
                     setAvailability(null);
                     setError("");
                   }}
                   disabled={bookingLoading}
                 >
-
                   {Array.from(
                     { length: maxGuests },
                     (_, index) => index + 1
@@ -510,11 +815,12 @@ export default function PropertyDetails() {
                         : "guests"}
                     </option>
                   ))}
-
                 </select>
               </div>
 
-              {/* DATE VALIDATION */}
+              {/* ==================================
+                  VALIDATE DATES
+              ================================== */}
               <button
                 type="button"
                 onClick={handleCheckAvailability}
@@ -538,7 +844,7 @@ export default function PropertyDetails() {
                 </p>
               )}
 
-              {/* API ERROR MESSAGE */}
+              {/* BOOKING API ERROR */}
               {error && (
                 <p
                   className="availability-error"
@@ -548,10 +854,11 @@ export default function PropertyDetails() {
                 </p>
               )}
 
-              {/* PRICE BREAKDOWN */}
+              {/* ==================================
+                  PRICE BREAKDOWN
+              ================================== */}
               {validNights && (
                 <div className="booking-price-summary">
-
                   <p>
                     {formatPrice(price)} × {nights}{" "}
                     {nights === 1
@@ -562,11 +869,12 @@ export default function PropertyDetails() {
                   <h3>
                     Total: {formatPrice(total)}
                   </h3>
-
                 </div>
               )}
 
-              {/* RESERVE BUTTON */}
+              {/* ==================================
+                  RESERVE BUTTON
+              ================================== */}
               <button
                 type="submit"
                 className="book-now-btn"
@@ -577,7 +885,7 @@ export default function PropertyDetails() {
                   : "Reserve Now"}
               </button>
 
-              {/* BOOKING NOTES */}
+              {/* BOOKING INFORMATION */}
               <p className="booking-note">
                 Maximum stay: 14 nights.
               </p>
@@ -586,12 +894,11 @@ export default function PropertyDetails() {
                 Availability and final price are
                 confirmed by the backend.
               </p>
-
             </form>
 
           </div>
-
         </div>
+
       </div>
     </main>
   );

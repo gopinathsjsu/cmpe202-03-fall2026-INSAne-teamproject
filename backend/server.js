@@ -11,34 +11,21 @@ const authRoutes = require("./routes/authRoutes");
 const propertyRoutes = require("./routes/propertyRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const bookingRoutes = require("./routes/bookingRoutes");
+const reviewRoutes = require("./routes/reviewRoutes");
 
 // ==========================================
 // INITIALIZE EXPRESS
 // ==========================================
 const app = express();
 
-// Use environment port or local default.
 const PORT = process.env.PORT || 5001;
-
-const NODE_ENV =
-  process.env.NODE_ENV || "development";
+const NODE_ENV = process.env.NODE_ENV || "development";
 
 // ==========================================
 // FRONTEND CORS CONFIGURATION
 // ==========================================
-
-// Supports one or multiple comma-separated
-// frontend URLs from the environment.
-//
-// Example:
-// FRONTEND_URL=http://localhost:5173
-//
-// Production example:
-// FRONTEND_URL=https://your-frontend.example.com
-
 const allowedOrigins = (
-  process.env.FRONTEND_URL ||
-  "http://localhost:5173"
+  process.env.FRONTEND_URL || "http://localhost:5173"
 )
   .split(",")
   .map((origin) => origin.trim().replace(/\/+$/, ""))
@@ -47,21 +34,16 @@ const allowedOrigins = (
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Allow requests without an Origin header,
-      // such as curl and server-to-server requests.
-      // Authentication still applies to
-      // protected API endpoints.
+      // Allow curl and server-to-server requests.
       if (!origin) {
         return callback(null, true);
       }
 
-      if (allowedOrigins.includes(origin)) {
+      if (allowedOrigins.includes(origin.replace(/\/+$/, ""))) {
         return callback(null, true);
       }
 
-      return callback(
-        new Error("CORS origin not allowed")
-      );
+      return callback(new Error("CORS origin not allowed"));
     },
 
     methods: [
@@ -83,8 +65,6 @@ app.use(
 // ==========================================
 // JSON REQUEST BODY MIDDLEWARE
 // ==========================================
-
-// Parse JSON before registering routes.
 app.use(
   express.json({
     limit: "1mb",
@@ -125,7 +105,6 @@ app.get("/api/db-health", async (req, res) => {
       status: "connected",
       database: "PostgreSQL",
     });
-
   } catch (error) {
     console.error(
       "Database health check failed:",
@@ -143,20 +122,21 @@ app.get("/api/db-health", async (req, res) => {
 // API ROUTES
 // ==========================================
 
-// Customer and host registration,
-// login, and authentication.
+// Authentication: register, login, JWT.
 app.use("/api/auth", authRoutes);
 
-// Public property listings,
-// host create/update/delete.
+// Properties: public listings, host management.
 app.use("/api/properties", propertyRoutes);
 
-// Admin property approval and rejection.
+// Admin: property approval and rejection.
 app.use("/api/admin", adminRoutes);
 
-// Customer reservations,
-// cancellations, and host bookings.
+// Bookings: reservations and cancellations.
 app.use("/api/bookings", bookingRoutes);
+
+// Reviews: submit, view, and retrieve reviews.
+// IMPORTANT: Must appear BEFORE the 404 handler.
+app.use("/api", reviewRoutes);
 
 // ==========================================
 // HANDLE UNKNOWN ROUTES
@@ -220,25 +200,22 @@ const server = app.listen(PORT, () => {
 // ==========================================
 // GRACEFUL SHUTDOWN
 // ==========================================
+let shuttingDown = false;
+
 async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
   console.log(`${signal} received. Shutting down...`);
 
   server.close(async () => {
     try {
       await pool.end();
 
-      console.log(
-        "PostgreSQL connections closed."
-      );
-
+      console.log("PostgreSQL connections closed.");
       process.exit(0);
-
     } catch (error) {
-      console.error(
-        "Shutdown error:",
-        error.message
-      );
-
+      console.error("Shutdown error:", error.message);
       process.exit(1);
     }
   });

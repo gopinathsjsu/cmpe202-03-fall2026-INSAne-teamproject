@@ -1,78 +1,139 @@
-
 import { useState } from "react";
+import { createReview } from "../services/reviews";
 
-export default function ReviewForm({ booking, onSubmit, onCancel }) {
-  const [rating, setRating] = useState(5);
+export default function ReviewForm({
+  bookingId,
+  token,
+  onSubmitted,
+}) {
+  const [rating, setRating] = useState(0);
   const [comment, setComment] = useState("");
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  function handleSubmit(event) {
+  const handleSubmit = async (event) => {
     event.preventDefault();
+    if (loading) return;
 
-    if (comment.trim().length < 10) {
-      setError("Please write at least 10 characters.");
+    setError("");
+    setSuccess("");
+
+    if (rating < 1 || rating > 5) {
+      setError("Please select a star rating.");
       return;
     }
 
-    onSubmit({
-      bookingId: booking.id,
-      propertyId: booking.propertyId,
-      rating,
-      comment: comment.trim(),
-    });
-  }
+    const trimmed = comment.trim();
+
+    if (trimmed.length < 10 || trimmed.length > 2000) {
+      setError("Review must be 10–2000 characters.");
+      return;
+    }
+
+    if (!token) {
+      setError("Please log in to submit a review.");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const result = await createReview({
+        token,
+        bookingId,
+        rating,
+        comment: trimmed,
+      });
+
+      setSuccess("Your review was submitted successfully!");
+      setRating(0);
+      setComment("");
+
+      if (onSubmitted) {
+        onSubmitted(result.review);
+      }
+    } catch (err) {
+      setError(err.message || "Unable to submit review.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <form className="review-form" onSubmit={handleSubmit}>
-      <h3>How was your stay?</h3>
-      <p>Rate your experience from 1 to 5 stars.</p>
+    <form onSubmit={handleSubmit} className="review-form">
+      <h3>Leave a Review</h3>
 
-      <div className="review-stars" role="group" aria-label="Rating">
+      <p>How would you rate your stay?</p>
+
+      <div
+        className="review-stars"
+        role="group"
+        aria-label="Choose a rating"
+        style={{ display: "flex", gap: "8px" }}
+      >
         {[1, 2, 3, 4, 5].map((star) => (
           <button
-            type="button"
             key={star}
-            className={star <= rating ? "selected" : ""}
+            type="button"
             onClick={() => setRating(star)}
-            aria-label={`${star} stars`}
+            aria-label={`${star} star${star > 1 ? "s" : ""}`}
             aria-pressed={rating === star}
+            style={{
+              fontSize: "32px",
+              cursor: "pointer",
+              color: star <= rating ? "#f4b400" : "#aaa",
+              background: "none",
+              border: "none",
+            }}
           >
             ★
           </button>
         ))}
       </div>
 
-      <label htmlFor={`review-${booking.id}`}>
+      <p>{rating ? `${rating}/5 stars` : "Select a rating"}</p>
+
+      <label htmlFor={`review-${bookingId}`}>
         Write your review
       </label>
 
       <textarea
-        id={`review-${booking.id}`}
+        id={`review-${bookingId}`}
         value={comment}
-        onChange={(event) => {
-          setComment(event.target.value);
-          setError("");
-        }}
-        placeholder="Tell others about your experience..."
+        onChange={(event) => setComment(event.target.value)}
+        placeholder="Tell other guests about your experience..."
+        maxLength={2000}
         rows={4}
-        maxLength={1000}
         required
+        style={{
+          width: "100%",
+          padding: "12px",
+          marginTop: "8px",
+          borderRadius: "8px",
+        }}
       />
 
-      {error && <p className="error-message">{error}</p>}
+      <p>{comment.trim().length}/2000 characters</p>
 
-      <div className="review-form-actions">
-        <button type="submit" className="primary-btn">
-          Submit review
-        </button>
-        <button
-          type="button"
-          className="review-cancel-btn"
-          onClick={onCancel}
-        >
-          Cancel
-        </button>
-      </div>
+      {error && (
+        <p role="alert" style={{ color: "crimson" }}>
+          {error}
+        </p>
+      )}
+
+      {success && (
+        <p role="status" style={{ color: "green" }}>
+          {success}
+        </p>
+      )}
+
+      <button
+        type="submit"
+        disabled={loading || rating === 0}
+      >
+        {loading ? "Submitting..." : "Submit Review"}
+      </button>
     </form>
   );
 }

@@ -52,7 +52,6 @@ export default function PropertyCard({ property }) {
       {/* PROPERTY IMAGE */}
       <Link to={propertyUrl}>
         <div className="property-image-container">
-
           {property.image_url ? (
             <img
               src={property.image_url}
@@ -76,29 +75,31 @@ export default function PropertyCard({ property }) {
               Property image coming soon
             </div>
           )}
-
         </div>
       </Link>
 
       {/* PROPERTY INFORMATION */}
       <div className="property-details">
 
+        {/* PROPERTY NAME - MAIN HEADING */}
         <div className="property-title-row">
-          <h3>
-            {property.city}, {property.state}
+          <h3 className="property-title">
+            {property.title}
           </h3>
         </div>
 
+        {/* CITY AND STATE - SECONDARY TEXT */}
         <p className="property-name">
-          {property.title}
+          {property.city}, {property.state}
         </p>
 
         {/* DISTANCE FROM ADDRESS SEARCH */}
-        {Number.isFinite(property.distance_miles) && (
-          <p className="property-distance">
-            About {property.distance_miles} mi away
-          </p>
-        )}
+        {Number.isFinite(Number(property.distance_miles)) &&
+          property.distance_miles != null && (
+            <p className="property-distance">
+              About {property.distance_miles} mi away
+            </p>
+          )}
 
         {/* GUESTS AND BEDROOMS */}
         <p className="property-info">
@@ -118,7 +119,6 @@ export default function PropertyCard({ property }) {
 
         {/* PRICE AND BOOK BUTTON */}
         <div className="property-bottom">
-
           <p className="property-price">
             <strong>
               {formatPrice(property.price_per_night)}
@@ -132,7 +132,6 @@ export default function PropertyCard({ property }) {
           >
             Book now
           </Link>
-
         </div>
 
       </div>
