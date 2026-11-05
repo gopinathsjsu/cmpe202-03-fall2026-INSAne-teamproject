@@ -12,6 +12,7 @@ const propertyRoutes = require("./routes/propertyRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const bookingRoutes = require("./routes/bookingRoutes");
 const reviewRoutes = require("./routes/reviewRoutes");
+const messageRoutes = require("./routes/messageRoutes");
 
 // ==========================================
 // INITIALIZE EXPRESS
@@ -137,6 +138,9 @@ app.use("/api/bookings", bookingRoutes);
 // Reviews: submit, view, and retrieve reviews.
 // IMPORTANT: Must appear BEFORE the 404 handler.
 app.use("/api", reviewRoutes);
+
+// Messaging: customer-host conversations and messages
+app.use("/api/messages", messageRoutes);
 
 // ==========================================
 // HANDLE UNKNOWN ROUTES

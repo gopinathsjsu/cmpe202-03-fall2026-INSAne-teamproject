@@ -27,6 +27,11 @@ import Dashboard from "./pages/Dashboard";
 import MyBookings from "./pages/MyBookings";
 
 // ==========================================
+// CUSTOMER / HOST MESSAGING
+// ==========================================
+import Messages from "./pages/Messages";
+
+// ==========================================
 // HOST PAGES
 // ==========================================
 import HostDashboard from "./pages/HostDashboard";
@@ -67,14 +72,14 @@ function getDashboardPath(user) {
 // MAIN APPLICATION
 // ==========================================
 export default function App() {
-  // Load and validate saved session.
+  // Load and validate the saved session.
   const [user, setUser] = useState(getCurrentUser);
 
   // ==========================================
   // HANDLE LOGIN
   // ==========================================
   function handleLogin(loggedInUser) {
-    // Re-read validated session from auth.js.
+    // Re-read the validated session from auth.js.
     const session = getCurrentUser();
 
     setUser(session || null);
@@ -140,10 +145,7 @@ export default function App() {
       const currentUser = getCurrentUser();
 
       setUser((previous) => {
-        if (
-          !previous &&
-          !currentUser
-        ) {
+        if (!previous && !currentUser) {
           return previous;
         }
 
@@ -290,6 +292,29 @@ export default function App() {
           element={
             user?.role === "customer" ? (
               <MyBookings user={user} />
+            ) : (
+              <Navigate
+                to={
+                  user
+                    ? getDashboardPath(user)
+                    : "/login"
+                }
+                replace
+              />
+            )
+          }
+        />
+
+        {/* ==================================
+            CUSTOMER / HOST MESSAGING
+        ================================== */}
+
+        <Route
+          path="/messages"
+          element={
+            user?.role === "customer" ||
+            user?.role === "host" ? (
+              <Messages />
             ) : (
               <Navigate
                 to={

@@ -1,16 +1,30 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { getCurrentUser } from "../services/auth";
+// ==========================================
+// AUTHENTICATION
+// ==========================================
+import {
+  getCurrentUser,
+  getAuthToken,
+} from "../services/auth";
+
+// ==========================================
+// BACKEND SERVICES
+// ==========================================
 import { getBackendPropertyById } from "../services/backendProperties";
 import { createBooking } from "../services/bookings";
 import { getPropertyReviews } from "../services/reviews";
+import { startConversation } from "../services/messages";
 
-// Google Maps integration - teammate's feature
+// ==========================================
+// GOOGLE MAPS INTEGRATION
+// ==========================================
 import {
   getPropertyPosition,
   isGoogleMapsEnabled,
 } from "../services/googleMaps";
+
 import PropertyMap from "../components/PropertyMap";
 
 // ==========================================
@@ -27,7 +41,7 @@ function getToday() {
 }
 
 // ==========================================
-// HELPER: CALCULATE NUMBER OF NIGHTS
+// HELPER: CALCULATE NIGHTS
 // ==========================================
 function calculateNights(checkIn, checkOut) {
   if (!checkIn || !checkOut) return 0;
@@ -35,7 +49,10 @@ function calculateNights(checkIn, checkOut) {
   const start = Date.parse(`${checkIn}T00:00:00Z`);
   const end = Date.parse(`${checkOut}T00:00:00Z`);
 
-  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(end)
+  ) {
     return 0;
   }
 
@@ -123,7 +140,7 @@ function RatingStars({ rating, size = "20px" }) {
 }
 
 // ==========================================
-// PROPERTY DETAILS PAGE
+// MAIN PROPERTY DETAILS COMPONENT
 // ==========================================
 export default function PropertyDetails() {
   const { id } = useParams();
@@ -141,7 +158,8 @@ export default function PropertyDetails() {
   // ==========================================
   // BOOKING STATE
   // ==========================================
-  const [bookingLoading, setBookingLoading] = useState(false);
+  const [bookingLoading, setBookingLoading] =
+    useState(false);
 
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
@@ -151,14 +169,24 @@ export default function PropertyDetails() {
   const [error, setError] = useState("");
 
   // ==========================================
-  // REVIEW STATE
+  // REVIEWS STATE
   // ==========================================
   const [reviews, setReviews] = useState([]);
   const [averageRating, setAverageRating] = useState(0);
   const [totalReviews, setTotalReviews] = useState(0);
 
-  const [reviewsLoading, setReviewsLoading] = useState(true);
+  const [reviewsLoading, setReviewsLoading] =
+    useState(true);
+
   const [reviewsError, setReviewsError] = useState("");
+
+  // ==========================================
+  // CUSTOMER-HOST MESSAGING STATE
+  // ==========================================
+  const [contactingHost, setContactingHost] =
+    useState(false);
+
+  const [contactError, setContactError] = useState("");
 
   // ==========================================
   // LOAD PROPERTY FROM POSTGRESQL
@@ -168,8 +196,8 @@ export default function PropertyDetails() {
 
     async function loadProperty() {
       setLoading(true);
-      setPropertyError("");
       setProperty(null);
+      setPropertyError("");
 
       setCheckIn("");
       setCheckOut("");
@@ -177,6 +205,7 @@ export default function PropertyDetails() {
 
       setAvailability(null);
       setError("");
+      setContactError("");
 
       try {
         const data = await getBackendPropertyById(id);
@@ -205,7 +234,7 @@ export default function PropertyDetails() {
   }, [id]);
 
   // ==========================================
-  // LOAD PROPERTY REVIEWS FROM POSTGRESQL
+  // LOAD PROPERTY REVIEWS
   // ==========================================
   useEffect(() => {
     let active = true;
@@ -224,7 +253,9 @@ export default function PropertyDetails() {
         if (!active) return;
 
         setReviews(
-          Array.isArray(data.reviews) ? data.reviews : []
+          Array.isArray(data.reviews)
+            ? data.reviews
+            : []
         );
 
         setAverageRating(
@@ -253,6 +284,197 @@ export default function PropertyDetails() {
       active = false;
     };
   }, [id]);
+
+  // ==========================================
+  // CALCULATED BOOKING VALUES
+  // ==========================================
+  const today = getToday();
+
+  const maxGuests = Math.max(
+    1,
+    Number(property?.max_guests) || 1
+  );
+
+  const price = Number(property?.price_per_night) || 0;
+
+  const nights = calculateNights(checkIn, checkOut);
+
+  const validNights =
+    Number.isFinite(nights) &&
+    nights >= 1 &&
+    nights <= 14;
+
+  const total = validNights
+    ? nights * price
+    : 0;
+
+  const amenities = getAmenities(property?.amenities);
+
+  // ==========================================
+  // VALIDATE RESERVATION INPUT
+  // ==========================================
+  function validateBooking() {
+    if (!property) {
+      return "Property information is unavailable.";
+    }
+
+    if (!checkIn || !checkOut) {
+      return "Please select both check-in and check-out dates.";
+    }
+
+    if (checkIn < today) {
+      return "Check-in cannot be in the past.";
+    }
+
+    if (!validNights) {
+      return "Bookings must be between 1 and 14 nights.";
+    }
+
+    const guestCount = Number(guests);
+
+    if (
+      !Number.isInteger(guestCount) ||
+      guestCount < 1 ||
+      guestCount > maxGuests
+    ) {
+      return `Please select between 1 and ${maxGuests} guests.`;
+    }
+
+    return null;
+  }
+
+  // ==========================================
+  // VALIDATE BOOKING DATES
+  // ==========================================
+  function handleCheckAvailability() {
+    setError("");
+
+    const validationError = validateBooking();
+
+    if (validationError) {
+      setAvailability({
+        available: false,
+        message: validationError,
+      });
+      return;
+    }
+
+    setAvailability({
+      available: null,
+      message:
+        "Your dates and guest count are valid. " +
+        "Actual availability will be confirmed when you reserve.",
+    });
+  }
+
+  // ==========================================
+  // CREATE BOOKING
+  // ==========================================
+  async function handleBooking(event) {
+    event.preventDefault();
+
+    setError("");
+    setAvailability(null);
+
+    if (bookingLoading) return;
+
+    const token = getAuthToken();
+
+    if (!user || !token) {
+      navigate("/login");
+      return;
+    }
+
+    if (user.role !== "customer") {
+      setError("Only customers can make reservations.");
+      return;
+    }
+
+    const validationError = validateBooking();
+
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setBookingLoading(true);
+
+    try {
+      await createBooking({
+        propertyId: property.id,
+        checkIn,
+        checkOut,
+        guests: Number(guests),
+      });
+
+      navigate("/my-bookings");
+    } catch (err) {
+      setError(
+        err.message || "Failed to create reservation."
+      );
+    } finally {
+      setBookingLoading(false);
+    }
+  }
+
+  // ==========================================
+  // NEW: CONTACT PROPERTY HOST
+  // ==========================================
+  async function handleContactHost() {
+    setContactError("");
+
+    if (contactingHost || !property) {
+      return;
+    }
+
+    // Guests must log in before messaging a host.
+    const token = getAuthToken();
+
+    if (!user || !token) {
+      navigate("/login");
+      return;
+    }
+
+    // Only customers may initiate conversations.
+    if (user.role !== "customer") {
+      setContactError(
+        "Only customers can contact property hosts."
+      );
+      return;
+    }
+
+    setContactingHost(true);
+
+    try {
+      // Creates a conversation or returns an existing one.
+      const result = await startConversation(
+        property.id,
+        token
+      );
+
+      const conversationId = result.conversation?.id;
+
+      if (!conversationId) {
+        throw new Error(
+          "Conversation opened, but no conversation ID was returned."
+        );
+      }
+
+      // Open the correct conversation in Messages.
+      navigate(
+        `/messages?conversation=${encodeURIComponent(
+          conversationId
+        )}`
+      );
+    } catch (err) {
+      setContactError(
+        err.message ||
+          "Unable to contact the host. Please try again."
+      );
+    } finally {
+      setContactingHost(false);
+    }
+  }
 
   // ==========================================
   // LOADING STATE
@@ -291,131 +513,7 @@ export default function PropertyDetails() {
   }
 
   // ==========================================
-  // PROPERTY INFORMATION
-  // ==========================================
-  const today = getToday();
-
-  const maxGuests = Number(property.max_guests) || 1;
-  const price = Number(property.price_per_night) || 0;
-
-  const nights = calculateNights(checkIn, checkOut);
-
-  const validNights =
-    Number.isFinite(nights) &&
-    nights >= 1 &&
-    nights <= 14;
-
-  const total = validNights ? nights * price : 0;
-
-  const amenities = getAmenities(property.amenities);
-  const image = property.image_url;
-
-  // ==========================================
-  // VALIDATE RESERVATION INPUT
-  // ==========================================
-  function validateBooking() {
-    if (!checkIn || !checkOut) {
-      return "Please select both check-in and check-out dates.";
-    }
-
-    if (checkIn < today) {
-      return "Check-in cannot be in the past.";
-    }
-
-    if (!validNights) {
-      return "Bookings must be between 1 and 14 nights.";
-    }
-
-    const guestCount = Number(guests);
-
-    if (
-      !Number.isInteger(guestCount) ||
-      guestCount < 1 ||
-      guestCount > maxGuests
-    ) {
-      return `Please select between 1 and ${maxGuests} guests.`;
-    }
-
-    return null;
-  }
-
-  // ==========================================
-  // VALIDATE BOOKING INPUTS
-  // ==========================================
-  // PostgreSQL validates actual booking availability
-  // when the reservation is submitted.
-  // ==========================================
-  function handleCheckAvailability() {
-    setError("");
-
-    const validationError = validateBooking();
-
-    if (validationError) {
-      setAvailability({
-        available: false,
-        message: validationError,
-      });
-      return;
-    }
-
-    setAvailability({
-      available: null,
-      message:
-        "Your dates and guest count are valid. " +
-        "Actual availability will be confirmed when you reserve.",
-    });
-  }
-
-  // ==========================================
-  // CREATE BOOKING THROUGH EXPRESS API
-  // ==========================================
-  async function handleBooking(event) {
-    event.preventDefault();
-
-    setError("");
-    setAvailability(null);
-
-    if (bookingLoading) return;
-
-    if (!user) {
-      navigate("/login");
-      return;
-    }
-
-    if (user.role !== "customer") {
-      setError("Only customers can make reservations.");
-      return;
-    }
-
-    const validationError = validateBooking();
-
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-
-    setBookingLoading(true);
-
-    try {
-      await createBooking({
-        propertyId: property.id,
-        checkIn,
-        checkOut,
-        guests: Number(guests),
-      });
-
-      navigate("/my-bookings");
-    } catch (err) {
-      setError(
-        err.message || "Failed to create reservation."
-      );
-    } finally {
-      setBookingLoading(false);
-    }
-  }
-
-  // ==========================================
-  // RENDER PAGE
+  // RENDER PROPERTY DETAILS
   // ==========================================
   return (
     <main className="property-details-page">
@@ -468,7 +566,9 @@ export default function PropertyDetails() {
 
             <span>
               ({totalReviews}{" "}
-              {totalReviews === 1 ? "review" : "reviews"})
+              {totalReviews === 1
+                ? "review"
+                : "reviews"})
             </span>
           </div>
         )}
@@ -481,9 +581,9 @@ export default function PropertyDetails() {
         <div className="property-details-content">
 
           {/* PROPERTY IMAGE */}
-          {image ? (
+          {property.image_url ? (
             <img
-              src={image}
+              src={property.image_url}
               alt={property.title}
               className="property-details-image"
             />
@@ -505,7 +605,7 @@ export default function PropertyDetails() {
           )}
 
           {/* ==================================
-              PROPERTY DESCRIPTION
+              DESCRIPTION
           ================================== */}
           <h2>About This Property</h2>
 
@@ -548,7 +648,6 @@ export default function PropertyDetails() {
 
           {/* ==================================
               GOOGLE MAPS INTEGRATION
-              TEAMMATE'S EXISTING FEATURE
           ================================== */}
           {isGoogleMapsEnabled() &&
             getPropertyPosition(property) && (
@@ -569,7 +668,6 @@ export default function PropertyDetails() {
 
           {/* ==================================
               GUEST REVIEWS AND RATINGS
-              POSTGRESQL INTEGRATION
           ================================== */}
           <section
             className="property-reviews-section"
@@ -737,7 +835,7 @@ export default function PropertyDetails() {
             <form onSubmit={handleBooking}>
 
               {/* ==================================
-                  CHECK-IN / CHECK-OUT
+                  CHECK-IN AND CHECK-OUT
               ================================== */}
               <div className="booking-date-fields">
                 <div>
@@ -844,7 +942,7 @@ export default function PropertyDetails() {
                 </p>
               )}
 
-              {/* BOOKING API ERROR */}
+              {/* BOOKING ERROR */}
               {error && (
                 <p
                   className="availability-error"
@@ -885,7 +983,6 @@ export default function PropertyDetails() {
                   : "Reserve Now"}
               </button>
 
-              {/* BOOKING INFORMATION */}
               <p className="booking-note">
                 Maximum stay: 14 nights.
               </p>
@@ -895,6 +992,64 @@ export default function PropertyDetails() {
                 confirmed by the backend.
               </p>
             </form>
+
+            {/* ==================================
+                NEW: CONTACT HOST BUTTON
+            ================================== */}
+            {(!user || user.role === "customer") && (
+              <div
+                className="contact-host-section"
+                style={{
+                  marginTop: "20px",
+                  paddingTop: "18px",
+                  borderTop: "1px solid #ddd",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={handleContactHost}
+                  disabled={contactingHost}
+                  className="outline-btn"
+                  style={{
+                    width: "100%",
+                    padding: "12px 16px",
+                    fontSize: "15px",
+                    fontWeight: 600,
+                    cursor: contactingHost
+                      ? "wait"
+                      : "pointer",
+                  }}
+                >
+                  {contactingHost
+                    ? "Opening conversation..."
+                    : "✉ Contact Host"}
+                </button>
+
+                <p
+                  style={{
+                    marginTop: "10px",
+                    fontSize: "13px",
+                    color: "#666",
+                    textAlign: "center",
+                  }}
+                >
+                  Have a question? Message the host
+                  before booking.
+                </p>
+
+                {contactError && (
+                  <p
+                    role="alert"
+                    className="error-message"
+                    style={{
+                      marginTop: "12px",
+                    }}
+                  >
+                    {contactError}
+                  </p>
+                )}
+              </div>
+            )}
 
           </div>
         </div>
