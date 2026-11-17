@@ -72,32 +72,36 @@ All APIs accept and return **JSON**, with input validation and error handling. A
 
 ### 👤 Customer
 
-- [o] Register / Login as Customer
-- [0 ] Search rentals by date, time, # guests, duration, availability
-- [ ] Optional search filters: city / state / zip code
-- [ ] Address search via Google Maps integration
-- [ ] Browse results with photos/videos, amenities, cost rating, reviews & ratings, and # of times booked today
-- [ ] View listing locations on Google Maps
-- [0 ] Book a stay (max. 14 days)
-- [0] Cancel a booking
-- [ ] Submit reviews and ratings on past bookings
+- [x] Register / Login as Customer
+- [x] Search rentals by date, time, # guests, duration, availability
+- [x] Optional search filters: city / state / zip code
+- [x] Address search via Google Maps integration
+- [~] Browse results with photos/videos, amenities, cost rating, reviews & ratings, and # of times booked today — photos, amenities, and reviews & ratings are live; video, cost-based sorting, and "# of times booked today" are not yet implemented
+- [x] View listing locations on Google Maps
+- [x] Book a stay (max. 14 days)
+- [x] Cancel a booking
+- [x] Submit reviews and ratings on past bookings
+- [x] Message a host about a listing (added post-MVP — in-app inbox)
 
 ### 🏠 Host
 
-- [ 0] Register / Login as Host
-- [ 0] Add a new listing
-- [0 ] Remove a listing
-- [ 0] View my listings
-- [0 ] Add / update name, address, contact info, hours, available booking times, max # guests
-- [0 ] Add / update descriptions, photos
-- [0 ] Analytics dashboard — rentals and bookings by zip code over 30 / 60 / 90 day periods, scoped to my listings
+- [x] Register / Login as Host
+- [x] Add a new listing
+- [x] Remove a listing
+- [x] View my listings
+- [x] Add / update name, address, contact info, hours, available booking times, max # guests
+- [x] Add / update descriptions, photos
+- [ ] Analytics dashboard — rentals and bookings by zip code over 30 / 60 / 90 day periods, scoped to my listings
+- [x] Message a customer about their booking (added post-MVP — in-app inbox)
 
 ### 🛡️ Admin
 
-- [ 0] Login as Admin
-- [0 ] Remove incomplete or inaccurate listings
-- [ 0] Approve new rentals for inclusion on the app
-- [0 ] Analytics dashboard — rentals and bookings by zip code over 30 / 60 / 90 day periods, across all listings
+- [x] Login as Admin
+- [x] Remove incomplete or inaccurate listings (via reject)
+- [x] Approve new rentals for inclusion on the app
+- [ ] Analytics dashboard — rentals and bookings by zip code over 30 / 60 / 90 day periods, across all listings
+
+> Legend: `[x]` done · `[~]` partially done · `[ ]` not started. Last verified against `main` @ `0ad3ec7`.
 
 ---
 
@@ -109,7 +113,8 @@ All APIs accept and return **JSON**, with input validation and error handling. A
 | Backend | Node.js | |
 | Database | PostgreSQL | |
 | External APIs | Google Maps JavaScript, Geocoding & Places API ([setup](docs/google-maps-setup.md)) | |
-| Cloud Hosting | AWS (for now) — Auto Scaling EC2 cluster behind a Load Balancer | |
+| Frontend Hosting | AWS Amplify — static build of `frontend/dist`, SPA rewrites, HSTS header ([amplify.yml](amplify.yml)) | |
+| Backend Hosting | Docker container (`node:22-alpine`) on AWS — intended to run behind an Auto Scaling EC2 cluster + Load Balancer ([Dockerfile](backend/Dockerfile)) | |
 | CI/CD | GitHub Actions | |
 | Testing | _TODO_ | |
 
@@ -124,7 +129,10 @@ All APIs accept and return **JSON**, with input validation and error handling. A
 ### Deployment Diagram
 
 > **TODO:** Add `docs/diagrams/deployment-diagram.png` and embed it here.
-> Must show the auto-scaled EC2 cluster, load balancer, and database tier.
+> Must show: AWS Amplify serving the built frontend (`amplify.yml`), the
+> backend running from its Docker image (`backend/Dockerfile`, port 5001)
+> on the auto-scaled EC2 cluster, the load balancer in front of it, and the
+> PostgreSQL database tier.
 
 ### Database Schema
 
