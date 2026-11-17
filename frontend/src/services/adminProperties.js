@@ -1,8 +1,9 @@
 import { getAuthToken } from "./auth";
 
-const API_URL = "http://localhost:5001/api/admin";
-const PROPERTIES_URL =
-  "http://localhost:5001/api/properties";
+const BASE_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:5001";
+const API_URL = `${BASE_URL}/api/admin`;
+const PROPERTIES_URL = `${BASE_URL}/api/properties`;
 
 // ==========================================
 // AUTHENTICATED ADMIN REQUEST
@@ -27,7 +28,7 @@ async function adminRequest(path, options = {}) {
     });
   } catch {
     throw new Error(
-      "Cannot connect to the backend on port 5001."
+      "Cannot connect to the backend."
     );
   }
 
@@ -81,7 +82,7 @@ export async function getApprovedProperties() {
     response = await fetch(PROPERTIES_URL);
   } catch {
     throw new Error(
-      "Cannot connect to the backend on port 5001."
+      "Cannot connect to the backend."
     );
   }
 
