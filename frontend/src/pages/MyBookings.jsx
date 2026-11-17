@@ -161,7 +161,7 @@ export default function MyBookings({ user }) {
         if (active) {
           setReviews(reviewData.reviews || []);
         }
-      } catch (err) {
+      } catch {
         if (active) {
           setReviewWarning(
             "Unable to load previous reviews. " +

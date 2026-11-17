@@ -78,7 +78,7 @@ export default function App() {
   // ==========================================
   // HANDLE LOGIN
   // ==========================================
-  function handleLogin(loggedInUser) {
+  function handleLogin() {
     // Re-read the validated session from auth.js.
     const session = getCurrentUser();
 
